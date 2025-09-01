@@ -1,0 +1,10 @@
+stride: 32
+names:
+  0: caution_position
+  1: good_position
+  2: bad_neck
+  3: good_neck
+  4: lean_position
+  5: fork
+  6: knife
+  7: spoon

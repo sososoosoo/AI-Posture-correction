@@ -1,0 +1,13 @@
+numpy==1.26.4
+opencv-python
+pillow
+mediapipe==0.10.14
+torch
+openvino
+openvino-dev
+pandas
+matplotlib
+seaborn
+tqdm
+ultralytics
+ipython

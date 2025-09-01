@@ -1,0 +1,26 @@
+# 가상환경/캐시
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# PyCharm 설정(공유 원하면 .idea/ 남겨도 됨)
+.idea/
+
+# 학습/모델/대용량 산출물
+*.bin
+*.pt
+*.onnx
+*.tflite
+*.xml
+*.engine
+*.pb
+
+# 데이터/동영상(필요시만 LFS로 관리)
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+# 기타 임시
+.DS_Store
