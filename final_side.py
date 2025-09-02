@@ -17,8 +17,10 @@ import threading
 class VideoPlayer:
     def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=1280, height=720):
         import cv2
-        self.cv2 = cv2  
-        self.__cap = cv2.VideoCapture(source)
+        self.cv2 = cv2
+        #self.__cap = cv2.VideoCapture(source)
+        cap = cv2.VideoCapture("http://192.168.0.12:8080/video")
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 입력 버퍼 최소화(지연 감소)
         self.__cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.__cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         if not self.__cap.isOpened():
