@@ -14,6 +14,7 @@ mp_drawing = mp.solutions.drawing_utils
 calibrated = False
 calibrated_chin_shoulder_dist = None
 calibrated_shoulder_width_px = None
+calibrated_neck_tilt_offset = 0.0
 calibration_feedback_text = ""
 calibration_feedback_time = 0
 
@@ -371,7 +372,7 @@ class FrontCore:
 
 def main():
     global posture_score, neck_tilt
-    global calibrated, calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibration_feedback_text, calibration_feedback_time
+    global calibrated, calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibrated_neck_tilt_offset, calibration_feedback_text, calibration_feedback_time
 
     VIDEO_SOURCE = 0
     player = None
@@ -442,7 +443,7 @@ def main():
                     cv2.line(frame, left_shoulder_px, right_shoulder_px, shoulder_color, 3)
 
                     shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2
-                    neck_tilt = nose.x - shoulder_mid_x
+                    neck_tilt = (nose.x - shoulder_mid_x) - calibrated_neck_tilt_offset
                     
                     max_tilt_threshold = 0.08
                     tilt_ratio = max(0, 1 - (abs(neck_tilt) / max_tilt_threshold))
@@ -479,6 +480,9 @@ def main():
                         l_s_px = left_shoulder.x * w
                         r_s_px = right_shoulder.x * w
                         calibrated_shoulder_width_px = abs(l_s_px - r_s_px)
+
+                        nose = landmarks[mp_pose.PoseLandmark.NOSE]
+                        calibrated_neck_tilt_offset = nose.x - (left_shoulder.x + right_shoulder.x) / 2
                         calibrated = True
                         calibration_feedback_text = "Calibrated!"
                     else:
