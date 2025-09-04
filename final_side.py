@@ -14,13 +14,16 @@ from IPython import display
 import cv2
 import threading
 
+# VideoPlayer 클래스는 기존과 동일합니다.
 class VideoPlayer:
     def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=1280, height=720):
         import cv2
         self.cv2 = cv2
-        #self.__cap = cv2.VideoCapture(source)
-        cap = cv2.VideoCapture("http://192.168.0.12:8080/video")
+        # self.__cap = cv2.VideoCapture(source)
+        # http 주석 처리, 로컬 카메라 사용
+        cap = cv2.VideoCapture(source) 
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 입력 버퍼 최소화(지연 감소)
+        self.__cap = cap
         self.__cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.__cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         if not self.__cap.isOpened():
@@ -80,13 +83,14 @@ class VideoPlayer:
             frame = self.cv2.flip(frame, 1)
         return frame
 
+# PostureTimer 클래스는 기존과 동일합니다.
 class PostureTimer:
     def __init__(self, duration):
         self.start_time = None
         self.duration = duration
         self.timer_active = False
-        self.bad_posture_time = 0.0  # 초 단위 누적 시간으로 변경
-        self.forward_head_time = 0.0  # 초 단위 누적 시간으로 변경
+        self.bad_posture_time = 0.0
+        self.forward_head_time = 0.0
         self.posture_data = []
         self.last_detection_time = None
         self.total_time = 0.0
@@ -98,7 +102,7 @@ class PostureTimer:
         self.forward_head_time = 0.0
         self.posture_data.clear()
         self.last_detection_time = self.start_time
-        self.total_time = 0.0  # 초기화
+        self.total_time = 0.0
 
     def stop_timer(self):
         self.timer_active = False
@@ -119,30 +123,39 @@ class PostureTimer:
         elif posture_type == 'forward_head':
             self.forward_head_time += time_elapsed
 
-
-# 타이머 시작 및 종료 버튼 상태
+# --- UI 및 타이머 상태 변수 ---
 timer_running = False
-show_results = False  # 결과 표시 여부를 관리하는 플래그
-collecting_data = False
+show_results = False
+posture_timer = PostureTimer(duration=1800)
 
+# --- UI 상수 정의 ---
+PANEL_WIDTH = 350
+BUTTON_X_START = 1280 + 50
+BUTTON_Y_START = 50
+BUTTON_WIDTH = 250
+BUTTON_HEIGHT = 60
+BUTTON_SPACING = 80
+
+# --- 마우스 클릭 이벤트 핸들러 ---
 def on_mouse_click(event, x, y, flags, param):
-    global timer_running, posture_timer, show_results, collecting_data
+    global timer_running, show_results
     if event == cv2.EVENT_LBUTTONDOWN:
         # 'Start Timer' 버튼 클릭 감지
-        if 50 <= x <= 200 and 50 <= y <= 100 and not timer_running:
+        if BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
+           BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and not timer_running:
             posture_timer.start_timer()
             timer_running = True
-            show_results = False  # 화면에서 결과를 지우기
-            collecting_data = True
+            show_results = False
             print("타이머 시작")
         # 'Stop Timer' 버튼 클릭 감지
-        elif 50 <= x <= 200 and 150 <= y <= 200 and timer_running:
-            result = posture_timer.stop_timer()
+        elif BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
+             (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and timer_running:
+            posture_timer.stop_timer()
             timer_running = False
-            show_results = True  # 화면에 결과 표시
-            collecting_data = False
-            print("타이머 종료. 분석 결과: ", result)
+            show_results = True
+            print("타이머 종료. 분석 결과: ", posture_timer.stop_timer())
 
+# --- 이미지 전처리 및 모델 추론 함수 (기존과 동일) ---
 def preprocess_image(img0: np.ndarray):
     img = letterbox(img0, auto=False)[0]
     img = img.transpose(2, 0, 1)
@@ -156,212 +169,144 @@ def prepare_input_tensor(image: np.ndarray):
         input_tensor = np.expand_dims(input_tensor, 0)
     return input_tensor
 
-def detect(
-    model: ov.Model,
-    image_path: Path,
-    conf_thres: float = 0.25,
-    iou_thres: float = 0.45,
-    classes: List[int] = None,
-    agnostic_nms: bool = False,
-):
-    if isinstance(image_path, np.ndarray):
-        img = image_path
-    else:
-        img = np.array(Image.open(image_path))
-    preprocessed_img, orig_img = preprocess_image(img)
+def detect(model: ov.Model, image: np.ndarray, conf_thres: float = 0.25, iou_thres: float = 0.45, classes: List[int] = None, agnostic_nms: bool = False):
+    preprocessed_img, orig_img = preprocess_image(image)
     input_tensor = prepare_input_tensor(preprocessed_img)
     predictions = torch.from_numpy(model(input_tensor)[0])
     pred = non_max_suppression(predictions, conf_thres, iou_thres, classes=classes, agnostic=agnostic_nms)
     return pred, orig_img, input_tensor.shape
 
-def draw_boxes(
-    predictions: np.ndarray,
-    input_shape: Tuple[int],
-    image: np.ndarray,
-    names: List[str],
-):
+def draw_boxes(predictions: np.ndarray, input_shape: Tuple[int], image: np.ndarray, names: List[str]):
     if not len(predictions):
         return image
-
-    annotator = Annotator(image, line_width=1, example=str(names))
+    annotator = Annotator(image, line_width=2, example=str(names))
     predictions[:, :4] = scale_boxes(input_shape[2:], predictions[:, :4], image.shape).round()
-
     for *xyxy, conf, cls in reversed(predictions):
-        # 신뢰도가 0.6 이상인 경우에만 표시
         if conf >= 0.6:
             label = f"{names[int(cls)]} {conf:.2f}"
             annotator.box_label(xyxy, label, color=colors(int(cls), True))
     return image
 
-def draw_results_on_frame(frame):
-    """
-    결과를 화면에 표시하는 함수.
-    Stop Timer 버튼이 눌렸을 때만 호출됨.
-    """
+# --- 새롭게 정의된 UI 드로잉 함수 ---
+def draw_ui(frame, fps, processing_time):
+    # UI 패널 생성 (검은색 배경)
+    ui_panel = np.zeros((frame.shape[0], PANEL_WIDTH, 3), dtype=np.uint8)
 
-    frame_width = frame.shape[1]
+    # 버튼 그리기
+    # Start Timer 버튼
+    start_button_color = (0, 150, 0) if not timer_running else (50, 50, 50)
+    cv2.rectangle(ui_panel, (50, BUTTON_Y_START), (50 + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), start_button_color, -1)
+    cv2.putText(ui_panel, 'Start Timer', (75, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-    # 데이터 수집 중일 때 표시
-    if collecting_data:
-        cv2.putText(
-            img=frame,
-            text="Collecting data...",
-            org=(frame_width - 300, 80),  # 오른쪽 끝에 표시
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=0.6,
-            color=(0, 0, 255),  # 녹색 텍스트
-            thickness=2,
-            lineType=cv2.LINE_AA,
-        )
-        return  # 데이터 수집 중일 때는 나머지 결과는 표시하지 않음
+    # Stop Timer 버튼
+    stop_button_color = (0, 0, 150) if timer_running else (50, 50, 50)
+    cv2.rectangle(ui_panel, (50, BUTTON_Y_START + BUTTON_SPACING), (50 + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
+    cv2.putText(ui_panel, 'Stop Timer', (85, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-    # 타이머가 활성화된 상태에서는 실시간으로 total_time을 갱신, 비활성화된 상태에서는 고정된 값을 사용
-    if posture_timer.timer_active:
-        current_total_time = time.time() - posture_timer.start_time if posture_timer.start_time else 0
-    else:
-        current_total_time = posture_timer.total_time
-
-    cv2.putText(
-        img=frame,
-        text=f"Bad Posture Time: {posture_timer.bad_posture_time:.1f} s",
-        org=(frame_width - 300, 80),
-        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-        fontScale=0.6,
-        color=(0, 0, 255),  # 빨간색 텍스트
-        thickness=2,
-        lineType=cv2.LINE_AA,
-    )
-
-    cv2.putText(
-        img=frame,
-        text=f"Forward Head Time: {posture_timer.forward_head_time:.1f} s",
-        org=(frame_width - 300, 110),
-        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-        fontScale=0.6,
-        color=(0, 0, 255),  # 빨간색 텍스트
-        thickness=2,
-        lineType=cv2.LINE_AA,
-    )
-
-
-    cv2.putText(
-        img=frame,
-        text=f"Total Time: {current_total_time:.1f} s",
-        org=(frame_width - 300, 140),  # 오른쪽 끝으로 이동
-        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-        fontScale=0.6,
-        color=(0, 0, 255),  # 빨간색 텍스트
-        thickness=2,
-        lineType=cv2.LINE_AA,
-    )
-
-
-
-metadata = yaml_load('model/best_int8.yaml')
-NAMES = metadata["names"]
-ov_model_path = 'model/best_int8.xml'
-
-core = ov.Core()
-ov_model = core.read_model(ov_model_path)
-compiled_model = core.compile_model(ov_model, 'CPU')
-
-VIDEO_SOURCE = 0  
-flip = True
-use_popup = True
-skip_first_frames = 0
-player = None
-
-posture_timer = PostureTimer(duration=1800)  # 예: 30분 타이머
-
-try:
-    player = VideoPlayer(source=VIDEO_SOURCE, flip=flip, fps=30, skip_first_frames=skip_first_frames)
-    player.start()
+    # 상태 및 결과 텍스트 표시
+    y_pos = 300
+    cv2.putText(ui_panel, "--- Status ---", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+    y_pos += 40
+    timer_status = "Running" if timer_running else "Stopped"
+    cv2.putText(ui_panel, f"Timer: {timer_status}", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
-    if use_popup:
-        title = "AI Solution Hackaton"
+    y_pos += 80
+    cv2.putText(ui_panel, "--- Analysis Results ---", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+    y_pos += 40
+    
+    current_total_time = (time.time() - posture_timer.start_time) if timer_running else posture_timer.total_time
+    
+    if timer_running or show_results:
+        cv2.putText(ui_panel, f"Bad Posture: {posture_timer.bad_posture_time:.1f} s", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 100, 255), 2)
+        y_pos += 30
+        cv2.putText(ui_panel, f"Forward Head: {posture_timer.forward_head_time:.1f} s", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 100, 255), 2)
+        y_pos += 30
+        cv2.putText(ui_panel, f"Total Time: {current_total_time:.1f} s", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    # 성능 정보 표시
+    y_pos = frame.shape[0] - 100
+    cv2.putText(ui_panel, "--- Performance ---", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+    y_pos += 40
+    cv2.putText(ui_panel, f"Inference: {processing_time:.1f}ms", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    y_pos += 30
+    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    # 영상 프레임과 UI 패널을 가로로 연결
+    combined_frame = cv2.hconcat([frame, ui_panel])
+    return combined_frame
+
+def main():
+    # 모델 로드
+    metadata = yaml_load('model/best_int8.yaml')
+    NAMES = metadata["names"]
+    core = ov.Core()
+    ov_model = core.read_model('model/best_int8.xml')
+    compiled_model = core.compile_model(ov_model, 'CPU')
+
+    # 비디오 설정
+    VIDEO_SOURCE = 0
+    player = None
+
+    try:
+        player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30)
+        player.start()
+        
+        title = "AI Side Posture Analysis"
         cv2.namedWindow(title, cv2.WINDOW_GUI_NORMAL | cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(title, on_mouse_click)
 
-    processing_times = collections.deque()
+        processing_times = collections.deque(maxlen=200)
 
-    while True:
-        frame = player.next()
-        if frame is None:
-            print("Source ended")
-            break
-        scale = 1280 / max(frame.shape)
-        if scale < 1:
-            frame = cv2.resize(
-                src=frame,
-                dsize=None,
-                fx=scale,
-                fy=scale,
-                interpolation=cv2.INTER_AREA,
-            )
-        input_image = np.array(frame)
-
-        start_time = time.time()
-        detections, _, input_shape = detect(compiled_model, input_image[:, :, ::-1])
-        stop_time = time.time()
-
-        if posture_timer.timer_active:
-             for det in detections[0]:
-                 cls = int(det[-1])
-             if cls == 0:  # bad_position
-                posture_timer.log_posture('bad_posture')
-             elif cls == 2:  # bad_neck
-                posture_timer.log_posture('forward_head')
-
-
-
-        image_with_boxes = draw_boxes(detections[0], input_shape, input_image, NAMES)
-        frame = image_with_boxes
-
-        # 버튼 UI 그리기
-        cv2.rectangle(frame, (50, 50), (200, 100), (0, 255, 0), -1)
-        cv2.putText(frame, 'Start Timer', (60, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-        cv2.rectangle(frame, (50, 150), (200, 200), (0, 0, 255), -1)
-        cv2.putText(frame, 'Stop Timer', (60, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-
-        # 결과 표시가 활성화되었을 때만 화면에 결과 표시
-       
-        draw_results_on_frame(frame)
-
-        processing_times.append(stop_time - start_time)
-        if len(processing_times) > 200:
-            processing_times.popleft()
-
-        _, f_width = frame.shape[:2]
-        processing_time = np.mean(processing_times) * 1000
-        fps = 1000 / processing_time
-        cv2.putText(
-            img=frame,
-            text=f"Inference time: {processing_time:.1f}ms ({fps:.1f} FPS)",
-            org=(20, 40),
-            fontFace=cv2.FONT_HERSHEY_COMPLEX,
-            fontScale=f_width / 1000,
-            color=(0, 0, 255),
-            thickness=1,
-            lineType=cv2.LINE_AA,
-        )
-
-        if use_popup:
-            cv2.imshow(title, frame)
-            key = cv2.waitKey(1)
-            if key == 27:
+        while True:
+            frame = player.next()
+            if frame is None:
                 break
-        else:
-            _, encoded_img = cv2.imencode(ext=".jpg", img=frame, params=[cv2.IMWRITE_JPEG_QUALITY, 100])
-            i = display.Image(data=encoded_img)
-            display.clear_output(wait=True)
-            display.display(i)
+            
+            # 영상 리사이즈 (가로 1280에 맞게)
+            h, w, _ = frame.shape
+            scale = 1280 / w
+            frame = cv2.resize(frame, (1280, int(h * scale)), interpolation=cv2.INTER_AREA)
 
-except KeyboardInterrupt:
-    print("Interrupted")
-except RuntimeError as e:
-    print(e)
-finally:
-    if player is not None:
-        player.stop()
-    if use_popup:
+            input_image = np.array(frame)
+
+            # 모델 추론
+            start_time = time.time()
+            detections, _, input_shape = detect(compiled_model, input_image[:, :, ::-1])
+            stop_time = time.time()
+            processing_times.append(stop_time - start_time)
+            
+            # 타이머가 실행 중일 때 자세 로깅
+            if timer_running and detections and len(detections[0]) > 0:
+                for det in detections[0]:
+                    cls = int(det[-1])
+                    if cls == 0:  # bad_position
+                        posture_timer.log_posture('bad_posture')
+                    elif cls == 2:  # forward_head
+                        posture_timer.log_posture('forward_head')
+
+            # 바운딩 박스 그리기
+            frame = draw_boxes(detections[0], input_shape, input_image, NAMES)
+
+            # 성능 계산
+            processing_time_ms = np.mean(processing_times) * 1000
+            fps = 1000 / processing_time_ms if processing_time_ms > 0 else 0
+
+            # UI 그리기 및 화면 표시
+            display_frame = draw_ui(frame, fps, processing_time_ms)
+            cv2.imshow(title, display_frame)
+
+            key = cv2.waitKey(1)
+            if key == 27:  # ESC 키
+                break
+
+    except KeyboardInterrupt:
+        print("Interrupted")
+    except RuntimeError as e:
+        print(e)
+    finally:
+        if player is not None:
+            player.stop()
         cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    main()

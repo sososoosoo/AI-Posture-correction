@@ -1,4 +1,3 @@
-
 import cv2
 import mediapipe as mp
 import time
@@ -18,6 +17,7 @@ calibrated_shoulder_width_px = None
 calibration_feedback_text = ""
 calibration_feedback_time = 0
 
+# VideoPlayer 클래스는 기존과 동일합니다.
 class VideoPlayer:
     def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=1280, height=720):
         self.cv2 = cv2
@@ -80,6 +80,7 @@ class VideoPlayer:
             frame = self.cv2.flip(frame, 1)
         return frame
 
+# PostureTimer 클래스는 기존과 동일합니다.
 class PostureTimer:
     def __init__(self, duration):
         self.start_time = None
@@ -106,82 +107,129 @@ class PostureTimer:
         if self.timer_active:
             self.forward_neck_time += duration
 
-# 타이머 및 UI 관련 전역 변수
+# --- UI 및 타이머 상태 변수 ---
 timer_running = False
 show_results = False
-collecting_data = False
 posture_timer = PostureTimer(duration=1800)
+posture_score = 0.0
+neck_tilt = 0.0
+
+# --- UI 상수 정의 ---
+PANEL_WIDTH = 350
+BUTTON_X_START = 1280 + 50
+BUTTON_Y_START = 50
+BUTTON_WIDTH = 250
+BUTTON_HEIGHT = 60
+BUTTON_SPACING = 80
 
 def on_mouse_click(event, x, y, flags, param):
-    global timer_running, posture_timer, show_results, collecting_data
+    global timer_running, show_results
     if event == cv2.EVENT_LBUTTONDOWN:
-        if 50 <= x <= 200 and 50 <= y <= 100 and not timer_running:
+        if BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
+           BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and not timer_running:
             posture_timer.start_timer()
             timer_running = True
             show_results = False
-            collecting_data = True
             print("타이머 시작")
-        elif 50 <= x <= 200 and 150 <= y <= 200 and timer_running:
-            result = posture_timer.stop_timer()
+        elif BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
+             (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and timer_running:
+            posture_timer.stop_timer()
             timer_running = False
             show_results = True
-            collecting_data = False
-            print("타이머 종료. 분석 결과: ", result)
+            print("타이머 종료. 분석 결과: ", posture_timer.stop_timer())
 
-def draw_results_on_frame(frame):
-    frame_width = frame.shape[1]
+# --- 새롭게 정의된 UI 드로잉 함수 ---
+def draw_ui(frame, fps):
+    global posture_score, neck_tilt, calibrated, calibration_feedback_text, calibration_feedback_time
+    
+    ui_panel = np.zeros((frame.shape[0], PANEL_WIDTH, 3), dtype=np.uint8)
 
-    if collecting_data:
-        cv2.putText(frame, "Collecting data...", (frame_width - 300, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        return
+    # 버튼 그리기
+    start_button_color = (0, 150, 0) if not timer_running else (50, 50, 50)
+    cv2.rectangle(ui_panel, (50, BUTTON_Y_START), (50 + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), start_button_color, -1)
+    cv2.putText(ui_panel, 'Start Timer', (75, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-    if show_results:
-        current_total_time = posture_timer.total_time
-        cv2.putText(frame, f"Forward Neck Time: {posture_timer.forward_neck_time:.1f} s", (frame_width - 300, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-        cv2.putText(frame, f"Total Time: {current_total_time:.1f} s", (frame_width - 300, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    stop_button_color = (0, 0, 150) if timer_running else (50, 50, 50)
+    cv2.rectangle(ui_panel, (50, BUTTON_Y_START + BUTTON_SPACING), (50 + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
+    cv2.putText(ui_panel, 'Stop Timer', (85, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+
+    # 실시간 분석 정보
+    y_pos = 240
+    cv2.putText(ui_panel, "Real-time Analysis", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+    y_pos += 40
+    cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    y_pos += 30
+    cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    # 타이머 결과
+    y_pos += 80
+    cv2.putText(ui_panel, "Analysis Results", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+    y_pos += 40
+    current_total_time = (time.time() - posture_timer.start_time) if timer_running else posture_timer.total_time
+    
+    if timer_running or show_results:
+        cv2.putText(ui_panel, f"Forward Neck: {posture_timer.forward_neck_time:.1f} s", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 100, 255), 2)
+        y_pos += 30
+        cv2.putText(ui_panel, f"Total Time: {current_total_time:.1f} s", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        
+    # 캘리브레이션 정보
+    y_pos = frame.shape[0] - 180
+    cv2.putText(ui_panel, "--- Calibration ---", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
+    y_pos += 40
+    if not calibrated:
+        cv2.putText(ui_panel, "Press 'c' to calibrate", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    else:
+        cv2.putText(ui_panel, "Calibrated! (Press 'c' again)", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    
+    if time.time() - calibration_feedback_time < 2.5:
+        y_pos += 30
+        cv2.putText(ui_panel, calibration_feedback_text, (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+    # 성능 정보
+    y_pos = frame.shape[0] - 80
+    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (50, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    return cv2.hconcat([frame, ui_panel])
 
 def main():
-    global timer_running, show_results, collecting_data
+    global posture_score, neck_tilt
     global calibrated, calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibration_feedback_text, calibration_feedback_time
 
     VIDEO_SOURCE = 0
-    flip = True
-    use_popup = True
     player = None
 
     try:
-        player = VideoPlayer(source=VIDEO_SOURCE, flip=flip, fps=30)
+        player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30)
         player.start()
         
-        title = "Posture Monitoring with MediaPipe"
+        title = "AI Front Posture Analysis"
         cv2.namedWindow(title, cv2.WINDOW_GUI_NORMAL | cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(title, on_mouse_click)
 
-        processing_times = collections.deque()
         last_time = time.time()
 
         while True:
             frame = player.next()
             if frame is None:
-                print("Source ended")
                 break
             
-            # --- 프레임 간 시간 계산 ---
+            # 영상 리사이즈 (가로 1280에 맞게)
+            h, w, _ = frame.shape
+            scale = 1280 / w
+            frame = cv2.resize(frame, (1280, int(h * scale)), interpolation=cv2.INTER_AREA)
+            
             current_time = time.time()
             delta_time = current_time - last_time
             last_time = current_time
+            fps = 1 / delta_time if delta_time > 0 else 0
 
-            frame_height, frame_width, _ = frame.shape
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
             results = pose.process(rgb_frame)
 
             mp_drawing.draw_landmarks(
-                frame,
-                results.pose_landmarks,
-                mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=mp_drawing.DrawingSpec(color=(245,117,66), thickness=2, circle_radius=2),
-                connection_drawing_spec=mp_drawing.DrawingSpec(color=(220,220,220), thickness=2, circle_radius=2)
+                frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
+                landmark_drawing_spec=mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
+                connection_drawing_spec=mp_drawing.DrawingSpec(color=(220, 220, 220), thickness=2, circle_radius=2)
             )
 
             if results.pose_landmarks:
@@ -190,14 +238,15 @@ def main():
                 right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
                 mouth_left = landmarks[mp_pose.PoseLandmark.MOUTH_LEFT]
                 mouth_right = landmarks[mp_pose.PoseLandmark.MOUTH_RIGHT]
+                nose = landmarks[mp_pose.PoseLandmark.NOSE]
 
-                if all(lm.visibility > 0.7 for lm in [left_shoulder, right_shoulder, mouth_left, mouth_right]):
+                if all(lm.visibility > 0.7 for lm in [left_shoulder, right_shoulder, mouth_left, mouth_right, nose]):
+                    frame_height, frame_width, _ = frame.shape
                     shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
                     chin_y = (mouth_left.y + mouth_right.y) / 2
                     distance = abs(shoulder_y - chin_y)
 
-                    min_dist, max_dist = 0.08, 0.15 # 기본값
-
+                    min_dist, max_dist = 0.08, 0.15
                     if calibrated:
                         current_shoulder_width_px = abs((left_shoulder.x - right_shoulder.x) * frame_width)
                         if calibrated_shoulder_width_px > 0:
@@ -205,90 +254,60 @@ def main():
                             adjusted_ideal_dist = calibrated_chin_shoulder_dist * scale_factor
                             max_dist = adjusted_ideal_dist
                             min_dist = adjusted_ideal_dist * 0.7
-
-                    ratio = max(0, min((distance - min_dist) / (max_dist - min_dist), 1))
-                    red_color = 255 * (1 - ratio)
-                    green_color = 255 * ratio
+                    
+                    posture_score = max(0, min((distance - min_dist) / (max_dist - min_dist), 1))
+                    red_color, green_color = 255 * (1 - posture_score), 255 * posture_score
                     shoulder_color = (0, green_color, red_color)
-
+                    
                     left_shoulder_px = (int(left_shoulder.x * frame_width), int(left_shoulder.y * frame_height))
                     right_shoulder_px = (int(right_shoulder.x * frame_width), int(right_shoulder.y * frame_height))
                     cv2.line(frame, left_shoulder_px, right_shoulder_px, shoulder_color, 3)
 
-                    # --- 목 기울기(좌우) 계산 및 시각화 ---
-                    nose = landmarks[mp_pose.PoseLandmark.NOSE]
                     shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2
+                    neck_tilt = nose.x - shoulder_mid_x
                     
-                    # 코와 어깨 중심의 수평 거리로 기울기 계산
-                    tilt = nose.x - shoulder_mid_x
-                    
-                    # 기울기에 따른 색상 계산
-                    max_tilt_threshold = 0.08 # 이 값 이상 기울어지면 완전한 빨간색
-                    tilt_ratio = max(0, 1 - (abs(tilt) / max_tilt_threshold))
+                    max_tilt_threshold = 0.08
+                    tilt_ratio = max(0, 1 - (abs(neck_tilt) / max_tilt_threshold))
                     tilt_color = (0, 255 * tilt_ratio, 255 * (1 - tilt_ratio))
-
-                    # 선 그리기
+                    
                     nose_px = (int(nose.x * frame_width), int(nose.y * frame_height))
                     shoulder_mid_px = (int(shoulder_mid_x * frame_width), int(shoulder_y * frame_height))
                     cv2.line(frame, nose_px, shoulder_mid_px, tilt_color, 2)
 
-                    # 기울기 값 텍스트로 표시
-                    cv2.putText(frame, f"Neck Tilt: {tilt:.2f}", (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                    
-                    cv2.putText(frame, f"Posture Score: {ratio:.2f}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-                    # --- 새로운 타이머 로직 ---
-                    if ratio < 0.9:
+                    if posture_score < 0.9 or abs(neck_tilt) > max_tilt_threshold / 2:
                         posture_timer.add_forward_neck_time(delta_time)
 
-            # --- UI 텍스트 그리기 ---
-            if not calibrated:
-                cv2.putText(frame, "Press 'c' to calibrate good posture", (20, frame_height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-            else:
-                cv2.putText(frame, f"Calibrated. Press 'c' to re-calibrate", (20, frame_height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-            if time.time() - calibration_feedback_time < 2.0:
-                cv2.putText(frame, calibration_feedback_text, (20, frame_height - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            cv2.rectangle(frame, (50, 50), (200, 100), (0, 255, 0), -1)
-            cv2.putText(frame, 'Start Timer', (60, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-            cv2.rectangle(frame, (50, 150), (200, 200), (0, 0, 255), -1)
-            cv2.putText(frame, 'Stop Timer', (60, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-            draw_results_on_frame(frame)
+            display_frame = draw_ui(frame, fps)
+            cv2.imshow(title, display_frame)
             
-            # FPS 계산 (delta_time 사용)
-            fps = 1 / delta_time if delta_time > 0 else 0
-            cv2.putText(frame, f"FPS: {fps:.1f}", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
-            # --- 키보드 입력 처리 ---
-            if use_popup:
-                cv2.imshow(title, frame)
-                key = cv2.waitKey(1) & 0xFF
-
-                if key == ord('q') or key == 27:
-                    break
-                
-                if key == ord('c'):
-                    if results.pose_landmarks:
-                        landmarks = results.pose_landmarks.landmark
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q') or key == 27:
+                break
+            
+            if key == ord('c'):
+                if results.pose_landmarks:
+                    landmarks = results.pose_landmarks.landmark
+                    if all(landmarks[i].visibility > 0.7 for i in [11, 12, 9, 10]):
                         left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
                         right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
                         mouth_left = landmarks[mp_pose.PoseLandmark.MOUTH_LEFT]
                         mouth_right = landmarks[mp_pose.PoseLandmark.MOUTH_RIGHT]
-                        if all(lm.visibility > 0.7 for lm in [left_shoulder, right_shoulder, mouth_left, mouth_right]):
-                            shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
-                            chin_y = (mouth_left.y + mouth_right.y) / 2
-                            calibrated_chin_shoulder_dist = abs(shoulder_y - chin_y)
-                            l_s_px = left_shoulder.x * frame_width
-                            r_s_px = right_shoulder.x * frame_width
-                            calibrated_shoulder_width_px = abs(l_s_px - r_s_px)
-                            calibrated = True
-                            calibration_feedback_text = "Calibrated!"
-                            calibration_feedback_time = time.time()
-                        else:
-                            calibration_feedback_text = "Cannot see face/shoulders clearly."
-                            calibration_feedback_time = time.time()
+                        
+                        shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
+                        chin_y = (mouth_left.y + mouth_right.y) / 2
+                        calibrated_chin_shoulder_dist = abs(shoulder_y - chin_y)
+                        
+                        h, w, _ = frame.shape
+                        l_s_px = left_shoulder.x * w
+                        r_s_px = right_shoulder.x * w
+                        calibrated_shoulder_width_px = abs(l_s_px - r_s_px)
+                        calibrated = True
+                        calibration_feedback_text = "Calibrated!"
                     else:
-                        calibration_feedback_text = "No person detected."
-                        calibration_feedback_time = time.time()
+                        calibration_feedback_text = "Cannot see face/shoulders clearly."
+                else:
+                    calibration_feedback_text = "No person detected."
+                calibration_feedback_time = time.time()
 
     except KeyboardInterrupt:
         print("Interrupted")
@@ -298,8 +317,7 @@ def main():
         if player is not None:
             player.stop()
         pose.close()
-        if use_popup:
-            cv2.destroyAllWindows()
+        cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     main()
