@@ -235,6 +235,94 @@ def draw_ui(frame, fps, processing_time):
     combined_frame = cv2.hconcat([frame, ui_panel])
     return combined_frame
 
+# ===== (추가) Streamlit용 코어 클래스: 프레임 단위 처리 =====
+class SideCore:
+    """
+    - OpenVINO YOLO 측면 감지를 프레임 단위로 수행
+    - final_side.py의 detect()/draw_boxes() 유틸을 그대로 활용
+    - 외부에서 start/stop/reset 제어 가능
+    """
+    def __init__(self, model_dir: str = "model", model_name: str = "best_int8"):
+        # 라벨/모델 로드(파일 구조는 final_side.py의 main과 동일 가정)
+        metadata = yaml_load(str(Path(model_dir) / f"{model_name}.yaml"))
+        self.names = metadata["names"]
+        core = ov.Core()
+        ov_model = core.read_model(str(Path(model_dir) / f"{model_name}.xml"))
+        self.model = core.compile_model(ov_model, 'CPU')
+        # 타이머/상태
+        self.timer_active = False
+        self.start_time = None
+        self.total_time = 0.0
+        self.bad_posture_time = 0.0
+        self.forward_head_time = 0.0
+        self.proc_times = collections.deque(maxlen=200)
+
+    # ---- 외부 제어 ----
+    def start_timer(self):
+        self.timer_active = True
+        self.start_time = time.time()
+        self.total_time = 0.0
+        self.bad_posture_time = 0.0
+        self.forward_head_time = 0.0
+
+    def stop_timer(self):
+        self.timer_active = False
+
+    def reset_all(self):
+        self.timer_active = False
+        self.start_time = None
+        self.total_time = 0.0
+        self.bad_posture_time = 0.0
+        self.forward_head_time = 0.0
+        self.proc_times.clear()
+
+    def get_stats(self):
+        return {
+            "total": self.total_time,
+            "bad": self.bad_posture_time,
+            "forward": self.forward_head_time,
+            "fps": (1000.0 / (np.mean(self.proc_times) * 1000) if self.proc_times else 0.0)
+        }
+
+    # ---- 프레임 처리 ----
+    def process_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
+        img = frame_bgr.copy()
+        img = cv2.flip(img, 1)
+        h, w, _ = img.shape
+        scale = 1280 / max(1, w)
+        img = cv2.resize(img, (1280, int(h * scale)), interpolation=cv2.INTER_AREA)
+
+        # 추론
+        t0 = time.time()
+        detections, _, input_shape = detect(self.model, img[:, :, ::-1])
+        t1 = time.time()
+        self.proc_times.append(t1 - t0)
+
+        # 타이머 누적
+        now = time.time()
+        if self.timer_active and self.start_time:
+            self.total_time = now - self.start_time
+        if self.timer_active and detections and len(detections[0]) > 0:
+            for det in detections[0]:
+                cls = int(det[-1])
+                if cls == 0:   # bad_posture
+                    self.bad_posture_time += (t1 - t0)  # 프레임 간격 대용
+                elif cls == 2: # forward_head
+                    self.forward_head_time += (t1 - t0)
+
+        # 박스/라벨
+        out = draw_boxes(detections[0] if detections else np.array([]), input_shape, img, self.names)
+
+        # HUD
+        ms = (np.mean(self.proc_times) * 1000) if self.proc_times else 0.0
+        fps = 1000.0 / ms if ms > 0 else 0.0
+        cv2.putText(out, f"Infer {ms:5.1f} ms | {fps:4.1f} FPS",
+                    (20, out.shape[0]-60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (220,220,220), 2, cv2.LINE_AA)
+        cv2.putText(out, f"Bad: {self.bad_posture_time:5.1f}s | F.Head: {self.forward_head_time:5.1f}s | Total: {self.total_time:5.1f}s",
+                    (20, out.shape[0]-24), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2, cv2.LINE_AA)
+
+        return out
+
 def main():
     # 모델 로드
     metadata = yaml_load('model/best_int8.yaml')

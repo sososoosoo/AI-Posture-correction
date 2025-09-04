@@ -191,6 +191,184 @@ def draw_ui(frame, fps):
 
     return cv2.hconcat([frame, ui_panel])
 
+# ===== (추가) Streamlit용 코어 클래스: 프레임 단위 처리 =====
+class FrontCore:
+    """
+    - Streamlit WebRTC에서 매 프레임 호출되는 process_frame()을 제공
+    - 기존 final_front.py의 계산식을 그대로 사용하되, OpenCV 윈도우/마우스 콜백/VideoPlayer는 제거
+    - 외부에서 start/stop/reset/calibrate 제어 가능
+    """
+    def __init__(self):
+        # MediaPipe 초기화
+        self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
+        # 타이머/상태
+        self.timer_active = False
+        self.start_time = None
+        self.forward_neck_time = 0.0
+        self.total_time = 0.0
+        self.last_time = time.time()
+        # 캘리브레이션 상태
+        self.calibrated = False
+        self.calibrated_chin_shoulder_dist = None
+        self.calibrated_shoulder_width_px = None
+        self._want_calibrate = False
+        # 디스플레이 값
+        self.posture_score = 0.0
+        self.neck_tilt = 0.0
+
+    # ---- 외부 제어용 ----
+    def start_timer(self):
+        self.timer_active = True
+        self.start_time = time.time()
+        self.forward_neck_time = 0.0
+        self.total_time = 0.0
+        self.last_time = time.time()
+
+    def stop_timer(self):
+        self.timer_active = False
+
+    def reset_all(self):
+        self.timer_active = False
+        self.start_time = None
+        self.forward_neck_time = 0.0
+        self.total_time = 0.0
+        self.last_time = time.time()
+        self.calibrated = False
+        self.calibrated_chin_shoulder_dist = None
+        self.calibrated_shoulder_width_px = None
+        self.posture_score = 0.0
+        self.neck_tilt = 0.0
+
+    def request_calibration(self):
+        self._want_calibrate = True
+
+    def get_stats(self):
+        return {
+            "total": self.total_time,
+            "forward_neck": self.forward_neck_time,
+            "posture_score": self.posture_score,
+            "neck_tilt": self.neck_tilt,
+            "calibrated": self.calibrated
+        }
+
+    # ---- 내부 유틸 ----
+    @staticmethod
+    def _to_pixel(x, y, shape):
+        h, w = shape[:2]
+        return int(np.clip(x * w, 0, w - 1)), int(np.clip(y * h, 0, h - 1))
+
+    # ---- 프레임 처리 메인 ----
+    def process_frame(self, frame_bgr: np.ndarray) -> np.ndarray:
+        """
+        입력: BGR ndarray (WebRTC 프레임)
+        출력: 주석/라벨이 그려진 BGR ndarray
+        """
+        img = frame_bgr.copy()
+        img = cv2.flip(img, 1)
+        h, w, _ = img.shape
+
+        # 시간 갱신
+        now = time.time()
+        dt = now - self.last_time
+        self.last_time = now
+        if self.timer_active:
+            self.total_time += dt
+
+        # Mediapipe 추론
+        results = self.pose.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+        if results.pose_landmarks:
+            lms = results.pose_landmarks.landmark
+            # 주요 포인트
+            LS = mp_pose.PoseLandmark.LEFT_SHOULDER
+            RS = mp_pose.PoseLandmark.RIGHT_SHOULDER
+            ML = mp_pose.PoseLandmark.MOUTH_LEFT
+            MR = mp_pose.PoseLandmark.MOUTH_RIGHT
+            NO = mp_pose.PoseLandmark.NOSE
+            LH = mp_pose.PoseLandmark.LEFT_HIP
+            RH = mp_pose.PoseLandmark.RIGHT_HIP
+            LE = mp_pose.PoseLandmark.LEFT_ELBOW
+            RE = mp_pose.PoseLandmark.RIGHT_ELBOW
+
+            ls, rs = lms[LS.value], lms[RS.value]
+            ml, mr = lms[ML.value], lms[MR.value]
+            nose   = lms[NO.value]
+            lh, rh = lms[LH.value], lms[RH.value]
+            le, re = lms[LE.value], lms[RE.value]
+
+            # 픽셀 좌표
+            pls = self._to_pixel(ls.x, ls.y, img.shape)
+            prs = self._to_pixel(rs.x, rs.y, img.shape)
+            pml = self._to_pixel(ml.x, ml.y, img.shape)
+            pmr = self._to_pixel(mr.x, mr.y, img.shape)
+
+            shoulder_mid = ((pls[0] + prs[0]) // 2, (pls[1] + prs[1]) // 2)
+            jaw_mid = ((pml[0] + pmr[0]) // 2, (pml[1] + pmr[1]) // 2)
+
+            shoulder_w_px = max(1.0, float(np.hypot(prs[0] - pls[0], prs[1] - pls[1])))
+            d_norm = float(np.hypot(jaw_mid[0] - shoulder_mid[0], jaw_mid[1] - shoulder_mid[1])) / shoulder_w_px
+
+            # (final_front.py에 있던) 캘리브레이션 적용
+            min_dist, max_dist = 0.08, 0.15
+            if self.calibrated and self.calibrated_shoulder_width_px and self.calibrated_shoulder_width_px > 0:
+                scale_factor = shoulder_w_px / float(self.calibrated_shoulder_width_px)
+                adjusted_ideal = self.calibrated_chin_shoulder_dist * scale_factor
+                max_dist = adjusted_ideal
+                min_dist = adjusted_ideal * 0.7
+
+            # posture_score: 1=좋음, 0=나쁨 (final_front.py 로직 그대로)
+            self.posture_score = max(0, min((d_norm - min_dist) / (max_dist - min_dist + 1e-6), 1))
+
+            # 목 기울임
+            shoulder_mid_x = (ls.x + rs.x) / 2.0
+            self.neck_tilt = nose.x - shoulder_mid_x
+            max_tilt_threshold = 0.08
+            tilt_bad = abs(self.neck_tilt) > (max_tilt_threshold / 2.0)
+
+            # 색상 및 보조 라벨
+            red = int(255 * (1 - self.posture_score)); green = int(255 * self.posture_score)
+            shoulder_color = (0, green, red)
+
+            # 시각화
+            cv2.line(img, pls, prs, shoulder_color, 3)
+            cv2.circle(img, shoulder_mid, 5, (255, 255, 0), -1)
+            cv2.circle(img, jaw_mid, 5, (0, 165, 255), -1)
+            cv2.line(img, shoulder_mid, self._to_pixel(nose.x, nose.y, img.shape), (50, 200, 255), 2)
+
+            forward_head = (self.posture_score < 0.9)
+            label = []
+            if forward_head: label.append("Forward Head")
+            if tilt_bad:     label.append("Neck Tilt")
+            if not label:    label.append("Good (Front)")
+            cv2.putText(img, " | ".join(label), (20, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255) if (forward_head or tilt_bad) else (0, 180, 0), 2, cv2.LINE_AA)
+
+            # 캘리브레이션 요청 처리
+            if self._want_calibrate:
+                if all(pt.visibility > 0.7 for pt in [ls, rs, ml, mr]):
+                    self.calibrated_chin_shoulder_dist = abs(((ls.y + rs.y) / 2.0) - ((ml.y + mr.y) / 2.0))
+                    self.calibrated_shoulder_width_px = shoulder_w_px
+                    self.calibrated = True
+                    self._want_calibrate = False
+
+            # 타이머 누적
+            bad_posture = forward_head or tilt_bad
+            if self.timer_active and bad_posture:
+                self.forward_neck_time += dt
+
+            # HUD
+            cv2.putText(img,
+                f"Bad: {self.forward_neck_time:5.1f}s | Total: {self.total_time:5.1f}s | Calib: {'Y' if self.calibrated else 'N'}",
+                (20, img.shape[0]-22), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (0, 0, 255) if bad_posture else (120, 120, 120), 2, cv2.LINE_AA)
+
+        else:
+            # 미검출 HUD
+            cv2.putText(img, "No person detected", (20, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
+
+        return img
+
 def main():
     global posture_score, neck_tilt
     global calibrated, calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibration_feedback_text, calibration_feedback_time
