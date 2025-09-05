@@ -158,19 +158,7 @@ st.markdown("""
   border-color: rgba(255,255,255,.32);
 }
 
-/* 카드형 라디오 테두리/호버 보정 */
-[data-testid="stSidebar"] div[role="radiogroup"] > label {
-  display:block; padding:14px 14px;
-  border:1px solid rgba(255,255,255,.20);
-  border-radius:14px; margin:10px 0; cursor:pointer;
-  background: rgba(255,255,255,.07);
-  backdrop-filter: blur(3px);
-  transition: all .15s ease;
-}
-[data-testid="stSidebar"] div[role="radiogroup"] > label:hover {
-  border-color: rgba(255,255,255,.38);
-  background: rgba(255,255,255,.14);
-}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -257,11 +245,20 @@ def render_sidebar() -> str:
             background: rgba(255,255,255,.14);
           }}
 
+          /* 라디오 버튼을 감싸는 컨테이너를 사이드바 전체 너비로 확장 */
+          [data-testid="stSidebar"] .st-key-mode_radio {{
+            width: 100%;
+          }}
+
           /* 라디오 → 카드 스타일 */
           [data-testid="stSidebar"] div[role="radiogroup"] > label {{
-            display:block; padding:14px 14px;
-            border:1px solid rgba(255,255,255,.18);
-            border-radius:14px; margin:10px 0; cursor:pointer;
+            display: block !important; /* 블록 요소로 강제 */
+            width: 80% !important;     /* 너비를 80%로 강제 */
+            margin: 10px auto !important; /* 중앙 정렬 */
+            padding: 14px 14px;
+            border: 1px solid rgba(255,255,255,.18);
+            border-radius: 14px;
+            cursor: pointer;
             background: rgba(255,255,255,.07);
             backdrop-filter: blur(2px);
           }}
@@ -269,15 +266,9 @@ def render_sidebar() -> str:
             border-color: rgba(255,255,255,.35);
             background: rgba(255,255,255,.12);
           }}
-          /* 선택 표시(●/○) */
-          [data-testid="stSidebar"] div[role="radiogroup"] > label::before {{
-            content: "○"; margin-right:10px; font-size:18px; vertical-align:middle; color: #d1d5db;
-          }}
+          /* 선택 표시(●/○) 제거됨 */
           [data-testid="stSidebar"] div[role="radiogroup"] > label[data-checked="true"] {{
             border-color:#fb7185; background: rgba(251,113,133,.18);
-          }}
-          [data-testid="stSidebar"] div[role="radiogroup"] > label[data-checked="true"]::before {{
-            content: "●"; color:#ef4444;
           }}
           /* 기본 라벨 숨김 */
           [data-testid="stSidebar"] > div:has(> div[role="radiogroup"]) > label {{
