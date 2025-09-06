@@ -13,3 +13,4 @@ tqdm==4.67.1
 ultralytics==8.3.190
 ipython==9.5.0
 playsound==1.2.2
+pygame
