@@ -4,6 +4,7 @@ import time
 import collections
 import threading
 import numpy as np
+import tkinter as tk
 
 # MediaPipe Pose 솔루션 초기화
 mp_pose = mp.solutions.pose
@@ -288,7 +289,80 @@ def draw_ui(frame, fps):
 
     return cv2.hconcat([frame, ui_panel])
 
-# ===== (추가) Streamlit용 코어 클래스: 프레임 단위 처리 =====
+# ===== (추가) 화면 오버레이 알림 관리자 =====
+import tkinter as tk
+from threading import Thread
+
+class NotificationManager:
+    def __init__(self):
+        self._root = None
+        self.label = None
+        self._is_showing_desired = False
+        self._is_showing_actual = False
+        self._flashing_job = None
+        self._thread = Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        self._root = tk.Tk()
+        self._root.withdraw()
+        self._root.overrideredirect(True)
+        self.label = tk.Label(self._root, text="Warning", font=("Helvetica", 32, "bold"), fg="red", bg="white")
+        self.label.pack(padx=20, pady=10)
+
+        self._root.update_idletasks()
+        screen_w = self._root.winfo_screenwidth()
+        screen_h = self._root.winfo_screenheight()
+        win_w = self._root.winfo_width()
+        win_h = self._root.winfo_height()
+        x = screen_w - win_w - 50
+        y = screen_h - win_h - 80
+        self._root.geometry(f'{win_w}x{win_h}+{x}+{y}')
+
+        self._root.wm_attributes("-topmost", 1)
+        self._root.wm_attributes("-transparentcolor", "white")
+
+        print("[NotificationManager] _run thread started, Tkinter root created.")
+        self._root.after(100, self._check_state)
+        self._root.mainloop()
+
+    def _check_state(self):
+        print(f"[NotificationManager] _check_state: desired={self._is_showing_desired}, actual={self._is_showing_actual}")
+        if self._is_showing_desired and not self._is_showing_actual:
+            print("[NotificationManager] deiconify called.")
+            self._root.deiconify()
+            self._flash_text()
+            self._is_showing_actual = True
+        elif not self._is_showing_desired and self._is_showing_actual:
+            print("[NotificationManager] withdraw called.")
+            if self._flashing_job:
+                self._root.after_cancel(self._flashing_job)
+                self._flashing_job = None
+            self._root.withdraw()
+            self._is_showing_actual = False
+        self._root.after(100, self._check_state)
+
+    def _flash_text(self):
+        print(f"[NotificationManager] _flash_text called, current_color={self.label.cget('fg')}")
+        if not self._is_showing_actual or not self.label:
+            return
+        current_color = self.label.cget("fg")
+        next_color = "red" if current_color == "white" else "white"
+        self.label.config(fg=next_color)
+        self._flashing_job = self._root.after(500, self._flash_text)
+
+    def show(self):
+        self._is_showing_desired = True
+
+    def hide(self):
+        self._is_showing_desired = False
+
+    def quit(self):
+        if self._root:
+            self._root.after(0, self._root.destroy)
+
+
+# ===== (기존) Streamlit용 코어 클래스 =====
 class FrontCore:
     """
     - Streamlit WebRTC에서 매 프레임 호출되는 process_frame()을 제공
@@ -506,19 +580,23 @@ def main():
     global posture_score, neck_tilt
     global calibrated, calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibrated_neck_tilt_offset, calibration_feedback_text, calibration_feedback_time
 
+    # === (추가) 알림 관리자 시작 ===
+    notification_manager = NotificationManager()
+
     VIDEO_SOURCE = 0
     player = None
+    _alarm_local = None
 
     try:
-        # === (추가) 로컬 실행 알람 준비
+        # === 알람 준비 ===
         _alarm_local = AlarmPlayer(_find_alarm_path())
         _alarm_local_on = False
 
-        player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30)
+        player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30, width=960, height=540)
         player.start()
         
         title = "AI Front Posture Analysis"
-        cv2.namedWindow(title, cv2.WINDOW_GUI_NORMAL | cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(title, on_mouse_click)
 
         last_time = time.time()
@@ -528,10 +606,7 @@ def main():
             if frame is None:
                 break
             
-            # 영상 리사이즈 (가로 1280에 맞게)
-            h, w, _ = frame.shape
-            scale = 960 / w
-            frame = cv2.resize(frame, (960, int(h * scale)), interpolation=cv2.INTER_AREA)
+            
             
             current_time = time.time()
             delta_time = current_time - last_time
@@ -564,7 +639,7 @@ def main():
                             max_dist = adjusted_ideal_dist
                             min_dist = adjusted_ideal_dist * 0.7
                     
-                    posture_score = max(0, min((distance - min_dist) / (max_dist - min_dist), 1))
+                    posture_score = max(0, min((distance - min_dist) / (max_dist - min_dist + 1e-6), 1))
                     red_color, green_color = 255 * (1 - posture_score), 255 * posture_score
                     shoulder_color = (0, green_color, red_color)
                     
@@ -586,8 +661,12 @@ def main():
                     if posture_score < 0.9 or abs(neck_tilt) > max_tilt_threshold / 2:
                         posture_timer.add_forward_neck_time(delta_time)
 
-                    # === (추가) 로컬 알람: posture_score 기준만 체크
-                    if timer_running and posture_score < 0.9:
+                    # --- 통합 알람 로직 ---
+                    should_alarm = calibrated and posture_score < 0.9
+                    is_minimized = cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1
+
+                    # 1. 소리 알람 로직
+                    if should_alarm:
                         if not _alarm_local_on and _alarm_local:
                             _alarm_local.start()
                             _alarm_local_on = True
@@ -595,6 +674,140 @@ def main():
                         if _alarm_local_on and _alarm_local:
                             _alarm_local.stop()
                             _alarm_local_on = False
+                    
+                    # 2. 화면 오버레이 알림 로직
+            print(f"[Main Loop] should_alarm: {should_alarm}, is_minimized: {is_minimized}")
+            print(f"[Main Loop] calibrated: {calibrated}, posture_score: {posture_score:.2f}")
+            print(f"[Main Loop] cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE): {cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE)}")
+            if should_alarm and is_minimized:
+                print("[Main Loop] Calling notification_manager.show()")
+                notification_manager.show()
+            else:
+                print("[Main Loop] Calling notification_manager.hide()")
+                notification_manager.hide()
+
+    except KeyboardInterrupt:
+        print("Interrupted")
+    except RuntimeError as e:
+        print(e)
+    finally:
+        if player is not None:
+            player.stop()
+        if _alarm_local is not None:
+            _alarm_local.quit()
+        
+        # === (추가) 알림 관리자 종료 ===
+        print("[Main Loop] Calling notification_manager.quit()")
+        notification_manager.quit()
+        
+        pose.close()
+        cv2.destroyAllWindows()
+
+def main():
+    global posture_score, neck_tilt
+    global calibrated, calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibrated_neck_tilt_offset, calibration_feedback_text, calibration_feedback_time
+
+    # === (추가) 알림 관리자 시작 ===
+    notification_manager = NotificationManager()
+    print("NotificationManager initialized.")
+
+    VIDEO_SOURCE = 0
+    player = None
+    _alarm_local = None
+
+    try:
+        # === 알람 준비 ===
+        _alarm_local = AlarmPlayer(_find_alarm_path())
+        _alarm_local_on = False
+
+        player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30, width=960, height=540)
+        player.start()
+        
+        title = "AI Front Posture Analysis"
+        cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
+        cv2.setMouseCallback(title, on_mouse_click)
+
+        last_time = time.time()
+
+        while True:
+            frame = player.next()
+            if frame is None:
+                break
+            
+            
+            
+            current_time = time.time()
+            delta_time = current_time - last_time
+            last_time = current_time
+            fps = 1 / delta_time if delta_time > 0 else 0
+
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = pose.process(rgb_frame)
+
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+                left_shoulder = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER]
+                right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                mouth_left = landmarks[mp_pose.PoseLandmark.MOUTH_LEFT]
+                mouth_right = landmarks[mp_pose.PoseLandmark.MOUTH_RIGHT]
+                nose = landmarks[mp_pose.PoseLandmark.NOSE]
+
+                if all(lm.visibility > 0.7 for lm in [left_shoulder, right_shoulder, mouth_left, mouth_right, nose]):
+                    frame_height, frame_width, _ = frame.shape
+                    shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
+                    chin_y = (mouth_left.y + mouth_right.y) / 2
+                    distance = abs(shoulder_y - chin_y)
+
+                    min_dist, max_dist = 0.08, 0.15
+                    if calibrated:
+                        current_shoulder_width_px = abs((left_shoulder.x - right_shoulder.x) * frame_width)
+                        if calibrated_shoulder_width_px > 0:
+                            scale_factor = current_shoulder_width_px / calibrated_shoulder_width_px
+                            adjusted_ideal_dist = calibrated_chin_shoulder_dist * scale_factor
+                            max_dist = adjusted_ideal_dist
+                            min_dist = adjusted_ideal_dist * 0.7
+                    
+                    posture_score = max(0, min((distance - min_dist) / (max_dist - min_dist + 1e-6), 1))
+                    red_color, green_color = 255 * (1 - posture_score), 255 * posture_score
+                    shoulder_color = (0, green_color, red_color)
+                    
+                    left_shoulder_px = (int(left_shoulder.x * frame_width), int(left_shoulder.y * frame_height))
+                    right_shoulder_px = (int(right_shoulder.x * frame_width), int(right_shoulder.y * frame_height))
+                    cv2.line(frame, left_shoulder_px, right_shoulder_px, shoulder_color, 3)
+
+                    shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2
+                    neck_tilt = (nose.x - shoulder_mid_x) - calibrated_neck_tilt_offset
+                    
+                    max_tilt_threshold = 0.08
+                    tilt_ratio = max(0, 1 - (abs(neck_tilt) / max_tilt_threshold))
+                    tilt_color = (0, 255 * tilt_ratio, 255 * (1 - tilt_ratio))
+                    
+                    nose_px = (int(nose.x * frame_width), int(nose.y * frame_height))
+                    shoulder_mid_px = (int(shoulder_mid_x * frame_width), int(shoulder_y * frame_height))
+                    cv2.line(frame, nose_px, shoulder_mid_px, tilt_color, 2)
+
+                    if posture_score < 0.9 or abs(neck_tilt) > max_tilt_threshold / 2:
+                        posture_timer.add_forward_neck_time(delta_time)
+
+                    # --- 통합 알람 로직 ---
+                    should_alarm = calibrated and posture_score < 0.9
+                    is_minimized = cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE) < 1
+
+                    # 1. 소리 알람 로직
+                    if should_alarm:
+                        if not _alarm_local_on and _alarm_local:
+                            _alarm_local.start()
+                            _alarm_local_on = True
+                    else:
+                        if _alarm_local_on and _alarm_local:
+                            _alarm_local.stop()
+                            _alarm_local_on = False
+                    
+                    # 2. 화면 오버레이 알림 로직
+                    if should_alarm and is_minimized:
+                        notification_manager.show()
+                    else:
+                        notification_manager.hide()
 
             display_frame = draw_ui(frame, fps)
             cv2.imshow(title, display_frame)
@@ -638,15 +851,14 @@ def main():
     finally:
         if player is not None:
             player.stop()
+        if _alarm_local is not None:
+            _alarm_local.quit()
+        
+        # === (추가) 알림 관리자 종료 ===
+        notification_manager.quit()
+        
         pose.close()
         cv2.destroyAllWindows()
-
-        # === (추가) 알람 정리
-        try:
-            if _alarm_local_on and _alarm_local:
-                _alarm_local.stop()
-        except Exception:
-            pass
 
 if __name__ == '__main__':
     main()
