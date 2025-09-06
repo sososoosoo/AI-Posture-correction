@@ -8,7 +8,6 @@ import numpy as np
 # MediaPipe Pose 솔루션 초기화
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
-mp_drawing = mp.solutions.drawing_utils
 
 # --- 캘리브레이션 관련 전역 변수 ---
 calibrated = False
@@ -17,6 +16,146 @@ calibrated_shoulder_width_px = None
 calibrated_neck_tilt_offset = 0.0
 calibration_feedback_text = ""
 calibration_feedback_time = 0
+
+# ===== (추가) 알람 사운드 유틸 =====
+import os, sys, platform, threading
+
+# 알람 파일 탐색: 프로젝트/웹앱 자주 쓰는 위치 3곳을 순서대로 찾음
+_ALARM_CANDIDATES = [
+    "alarm.wav", "alarm.mp3",
+    os.path.join("assets", "alarm.wav"),
+    os.path.join("assets", "alarm.mp3"),
+    os.path.join("webapp", "assets", "alarm.wav"),
+    os.path.join("webapp", "assets", "alarm.mp3"),
+]
+def _find_alarm_path():
+    for p in _ALARM_CANDIDATES:
+        if os.path.exists(p):
+            return os.path.abspath(p)
+    return None
+
+class AlarmPlayer:
+    """
+    - WAV: winsound(Win) 또는 simpleaudio
+    - MP3/그 외: playsound
+    - 백엔드는 파일 확장자를 기준으로 자동선택 (실패 시 playsound로 폴백)
+    """
+    def __init__(self, sound_path: str | None):
+        self.sound_path = sound_path
+        self._running = False
+        self._thread: threading.Thread | None = None
+        self._backend = None
+        self._winsound = None
+        self._sa = None
+        self._playsound = None
+        self._play_obj = None
+
+        if not sound_path:
+            return
+
+        ext = os.path.splitext(sound_path)[1].lower()
+
+        # 1) WAV 우선
+        if ext == ".wav":
+            try:
+                import winsound
+                if platform.system().lower().startswith("win"):
+                    self._backend = "winsound"
+                    self._winsound = winsound
+            except Exception:
+                pass
+            if self._backend is None:
+                try:
+                    import simpleaudio as sa
+                    self._backend = "simpleaudio"
+                    self._sa = sa
+                except Exception:
+                    pass
+
+        # 2) 폴백(또는 MP3 등): playsound
+        if self._backend is None:
+            try:
+                from playsound import playsound
+                self._backend = "playsound"
+                self._playsound = playsound
+            except Exception:
+                self._backend = None  # 재생 불가
+
+    def start(self):
+        if self._running or not self.sound_path or self._backend is None:
+            return
+        self._running = True
+
+        # 1) winsound: 즉시 루프 재생(중간정지 가능)
+        if self._backend == "winsound":
+            try:
+                self._winsound.PlaySound(
+                    self.sound_path,
+                    self._winsound.SND_FILENAME | self._winsound.SND_ASYNC | self._winsound.SND_LOOP
+                )
+                return
+            except Exception:
+                self._running = False
+                return
+
+        # 2) simpleaudio: 루프 + 즉시 정지 가능
+        if self._backend == "simpleaudio":
+            try:
+                wave = self._sa.WaveObject.from_wave_file(self.sound_path)
+            except Exception:
+                self._running = False
+                return
+
+            def _loop():
+                while self._running:
+                    try:
+                        self._play_obj = wave.play()
+                        while self._running and self._play_obj.is_playing():
+                            time.sleep(0.02)
+                        if not self._running and self._play_obj:
+                            self._play_obj.stop()
+                    except Exception:
+                        time.sleep(0.2)
+
+            self._thread = threading.Thread(target=_loop, daemon=True)
+            self._thread.start()
+            return
+
+        # 3) playsound(MP3 등): **원샷(1회)** 재생 — 중간정지 불가
+        if self._backend == "playsound":
+            def _oneshot():
+                try:
+                    self._playsound(self.sound_path)
+                finally:
+                    self._running = False  # 파일이 끝나면 자동 OFF
+
+            self._thread = threading.Thread(target=_oneshot, daemon=True)
+            self._thread.start()
+            return
+
+        # 기타 실패
+        self._running = False
+
+    def stop(self):
+        if not self._running:
+            return
+        if self._backend == "winsound":
+            self._winsound.PlaySound(None, 0)  # 즉시 끔
+            self._running = False
+        elif self._backend == "simpleaudio":
+            self._running = False
+            if self._play_obj:
+                try:
+                    self._play_obj.stop()
+                except:
+                    pass
+            if self._thread is not None:
+                self._thread.join(timeout=1.0)
+                self._thread = None
+            self._play_obj = None
+        else:  # playsound (원샷이라 자연 종료 대기)
+            self._running = False
+            # 재생 중간 강제 중단은 불가하므로 한 번만 울리고 끝남
 
 # VideoPlayer 클래스는 기존과 동일합니다.
 class VideoPlayer:
@@ -175,6 +314,8 @@ def draw_ui(frame, fps):
     y_pos += 40
     cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     y_pos += 30
+    cv2.putText(ui_panel, "(maintain over 0.9 score)", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    y_pos += 60
     cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
     # 타이머 결과
@@ -236,6 +377,29 @@ class FrontCore:
         self.posture_score = 0.0
         self.neck_tilt = 0.0
 
+        # === (추가) 알람 상태 ===
+        alarm_path = _find_alarm_path()
+        self._alarm = AlarmPlayer(alarm_path)
+        self._alarm_on = False
+
+        # === (추가) posture_score 기준 알람 토글
+
+    def _update_alarm(self, forward_head: bool):
+        """
+        forward_head == True 이고 타이머가 켜져 있을 때만 알람 ON
+        (요구사항: posture_score < 0.9로 내려가 'forward neck' 시간이 오를 때)
+        """
+        if not self._alarm:
+            return
+        want_on = bool(self.timer_active and forward_head)
+        if want_on and not self._alarm_on:
+            self._alarm.start()
+            self._alarm_on = True
+        elif (not want_on) and self._alarm_on:
+            self._alarm.stop()
+            self._alarm_on = False
+
+
     # ---- 외부 제어용 ----
     def start_timer(self):
         self.timer_active = True
@@ -243,9 +407,6 @@ class FrontCore:
         self.forward_neck_time = 0.0
         self.total_time = 0.0
         self.last_time = time.time()
-
-    def stop_timer(self):
-        self.timer_active = False
 
     def reset_all(self):
         self.timer_active = False
@@ -258,6 +419,10 @@ class FrontCore:
         self.calibrated_shoulder_width_px = None
         self.posture_score = 0.0
         self.neck_tilt = 0.0
+        # 알람 즉시 OFF
+        if self._alarm_on and self._alarm:
+            self._alarm.stop()
+            self._alarm_on = False
 
     def request_calibration(self):
         self._want_calibrate = True
@@ -270,6 +435,13 @@ class FrontCore:
             "neck_tilt": self.neck_tilt,
             "calibrated": self.calibrated
         }
+
+    def stop_timer(self):
+        self.timer_active = False
+        # 알람 즉시 OFF
+        if self._alarm_on and self._alarm:
+            self._alarm.stop()
+            self._alarm_on = False
 
     # ---- 내부 유틸 ----
     @staticmethod
@@ -356,6 +528,9 @@ class FrontCore:
             cv2.line(img, shoulder_mid, self._to_pixel(nose.x, nose.y, img.shape), (50, 200, 255), 2)
 
             forward_head = (self.posture_score < 0.9)
+            self._update_alarm(forward_head)
+            # === (추가) 알람 상태 갱신
+            self._update_alarm(forward_head)
             label = []
             if forward_head: label.append("Forward Head")
             if tilt_bad:     label.append("Neck Tilt")
@@ -383,6 +558,8 @@ class FrontCore:
                 (0, 0, 255) if bad_posture else (120, 120, 120), 2, cv2.LINE_AA)
 
         else:
+            # 미검출: 알람 강제 OFF
+            self._update_alarm(False)
             # 미검출 HUD
             cv2.putText(img, "No person detected", (20, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
@@ -397,6 +574,10 @@ def main():
     player = None
 
     try:
+        # === (추가) 로컬 실행 알람 준비
+        _alarm_local = AlarmPlayer(_find_alarm_path())
+        _alarm_local_on = False
+
         player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30)
         player.start()
         
@@ -423,12 +604,6 @@ def main():
 
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = pose.process(rgb_frame)
-
-            mp_drawing.draw_landmarks(
-                frame, results.pose_landmarks, mp_pose.POSE_CONNECTIONS,
-                landmark_drawing_spec=mp_drawing.DrawingSpec(color=(245, 117, 66), thickness=2, circle_radius=2),
-                connection_drawing_spec=mp_drawing.DrawingSpec(color=(220, 220, 220), thickness=2, circle_radius=2)
-            )
 
             if results.pose_landmarks:
                 landmarks = results.pose_landmarks.landmark
@@ -475,6 +650,16 @@ def main():
                     if posture_score < 0.9 or abs(neck_tilt) > max_tilt_threshold / 2:
                         posture_timer.add_forward_neck_time(delta_time)
 
+                    # === (추가) 로컬 알람: posture_score 기준만 체크
+                    if timer_running and posture_score < 0.9:
+                        if not _alarm_local_on and _alarm_local:
+                            _alarm_local.start()
+                            _alarm_local_on = True
+                    else:
+                        if _alarm_local_on and _alarm_local:
+                            _alarm_local.stop()
+                            _alarm_local_on = False
+
             display_frame = draw_ui(frame, fps)
             cv2.imshow(title, display_frame)
             
@@ -519,6 +704,13 @@ def main():
             player.stop()
         pose.close()
         cv2.destroyAllWindows()
+
+        # === (추가) 알람 정리
+        try:
+            if _alarm_local_on and _alarm_local:
+                _alarm_local.stop()
+        except Exception:
+            pass
 
 if __name__ == '__main__':
     main()
