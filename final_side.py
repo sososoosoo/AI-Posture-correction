@@ -17,7 +17,7 @@ import threading
 
 # VideoPlayer 클래스는 기존과 동일합니다.
 class VideoPlayer:
-    def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=1280, height=720):
+    def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=960, height=540):
         import cv2
         self.cv2 = cv2
         # self.__cap = cv2.VideoCapture(source)
@@ -334,8 +334,8 @@ class SideCore:
         img = frame_bgr.copy()
         img = cv2.flip(img, 1)
         h, w, _ = img.shape
-        scale = 1280 / max(1, w)
-        img = cv2.resize(img, (1280, int(h * scale)), interpolation=cv2.INTER_AREA)
+        scale = 960 / max(1, w)
+        img = cv2.resize(img, (960, int(h * scale)), interpolation=cv2.INTER_AREA)
 
         # 추론
         t0 = time.time()
@@ -376,7 +376,7 @@ def main():
     NAMES = metadata["names"]
     core = Core()
     ov_model = core.read_model('model/best_int8.xml')
-    compiled_model = core.compile_model(ov_model, 'CPU')
+    compiled_model = core.compile_model(ov_model, 'CPU', {"PERFORMANCE_HINT": "LATENCY"})
 
     # 비디오 설정
     VIDEO_SOURCE = 0
@@ -399,8 +399,8 @@ def main():
 
             # 영상 리사이즈 (가로 1280에 맞게)
             h, w, _ = frame.shape
-            scale = 1280 / w
-            frame = cv2.resize(frame, (1280, int(h * scale)), interpolation=cv2.INTER_AREA)
+            scale = 960 / w
+            frame = cv2.resize(frame, (960, int(h * scale)), interpolation=cv2.INTER_AREA)
 
             input_image = np.array(frame)
 
