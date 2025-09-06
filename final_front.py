@@ -17,8 +17,9 @@ calibrated_neck_tilt_offset = 0.0
 calibration_feedback_text = ""
 calibration_feedback_time = 0
 
-# ===== (추가) 알람 사운드 유틸 =====
-import os, sys, platform, threading
+# ===== (수정) 알람 사운드 유틸 (pygame 사용) =====
+import os
+import pygame
 
 # 알람 파일 탐색: 프로젝트/웹앱 자주 쓰는 위치 3곳을 순서대로 찾음
 _ALARM_CANDIDATES = [
@@ -36,132 +37,54 @@ def _find_alarm_path():
 
 class AlarmPlayer:
     """
-    - WAV: winsound(Win) 또는 simpleaudio
-    - MP3/그 외: playsound
-    - 백엔드는 파일 확장자를 기준으로 자동선택 (실패 시 playsound로 폴백)
+    - pygame.mixer를 사용하여 사운드 재생 제어
+    - MP3, WAV 등 다양한 포맷 지원
+    - 무한 반복 및 중간 정지 기능
     """
     def __init__(self, sound_path: str | None):
         self.sound_path = sound_path
-        self._running = False
-        self._thread: threading.Thread | None = None
-        self._backend = None
-        self._winsound = None
-        self._sa = None
-        self._playsound = None
-        self._play_obj = None
-
+        self._is_initialized = False
         if not sound_path:
+            print("알람 파일 경로가 없습니다.")
             return
 
-        ext = os.path.splitext(sound_path)[1].lower()
-
-        # 1) WAV 우선
-        if ext == ".wav":
-            try:
-                import winsound
-                if platform.system().lower().startswith("win"):
-                    self._backend = "winsound"
-                    self._winsound = winsound
-            except Exception:
-                pass
-            if self._backend is None:
-                try:
-                    import simpleaudio as sa
-                    self._backend = "simpleaudio"
-                    self._sa = sa
-                except Exception:
-                    pass
-
-        # 2) 폴백(또는 MP3 등): playsound
-        if self._backend is None:
-            try:
-                from playsound import playsound
-                self._backend = "playsound"
-                self._playsound = playsound
-            except Exception:
-                self._backend = None  # 재생 불가
+        try:
+            pygame.mixer.init()
+            pygame.mixer.music.load(sound_path)
+            self._is_initialized = True
+            print(f"알람 파일 '{sound_path}' 로드 성공.")
+        except Exception as e:
+            print(f"pygame mixer 초기화 또는 사운드 파일 로드 실패: {e}")
+            self.sound_path = None # 에러 발생 시 재생 시도 방지
 
     def start(self):
-        if self._running or not self.sound_path or self._backend is None:
+        """알람을 무한 반복으로 재생합니다."""
+        if not self._is_initialized or pygame.mixer.music.get_busy():
             return
-        self._running = True
-
-        # 1) winsound: 즉시 루프 재생(중간정지 가능)
-        if self._backend == "winsound":
-            try:
-                self._winsound.PlaySound(
-                    self.sound_path,
-                    self._winsound.SND_FILENAME | self._winsound.SND_ASYNC | self._winsound.SND_LOOP
-                )
-                return
-            except Exception:
-                self._running = False
-                return
-
-        # 2) simpleaudio: 루프 + 즉시 정지 가능
-        if self._backend == "simpleaudio":
-            try:
-                wave = self._sa.WaveObject.from_wave_file(self.sound_path)
-            except Exception:
-                self._running = False
-                return
-
-            def _loop():
-                while self._running:
-                    try:
-                        self._play_obj = wave.play()
-                        while self._running and self._play_obj.is_playing():
-                            time.sleep(0.02)
-                        if not self._running and self._play_obj:
-                            self._play_obj.stop()
-                    except Exception:
-                        time.sleep(0.2)
-
-            self._thread = threading.Thread(target=_loop, daemon=True)
-            self._thread.start()
-            return
-
-        # 3) playsound(MP3 등): **원샷(1회)** 재생 — 중간정지 불가
-        if self._backend == "playsound":
-            def _oneshot():
-                try:
-                    self._playsound(self.sound_path)
-                finally:
-                    self._running = False  # 파일이 끝나면 자동 OFF
-
-            self._thread = threading.Thread(target=_oneshot, daemon=True)
-            self._thread.start()
-            return
-
-        # 기타 실패
-        self._running = False
+        try:
+            pygame.mixer.music.play(loops=-1)
+        except Exception as e:
+            print(f"알람 재생 실패: {e}")
 
     def stop(self):
-        if not self._running:
+        """알람 재생을 즉시 중지합니다."""
+        if not self._is_initialized:
             return
-        if self._backend == "winsound":
-            self._winsound.PlaySound(None, 0)  # 즉시 끔
-            self._running = False
-        elif self._backend == "simpleaudio":
-            self._running = False
-            if self._play_obj:
-                try:
-                    self._play_obj.stop()
-                except:
-                    pass
-            if self._thread is not None:
-                self._thread.join(timeout=1.0)
-                self._thread = None
-            self._play_obj = None
-        else:  # playsound (원샷이라 자연 종료 대기)
-            self._running = False
-            # 재생 중간 강제 중단은 불가하므로 한 번만 울리고 끝남
+        try:
+            pygame.mixer.music.stop()
+        except Exception as e:
+            print(f"알람 중지 실패: {e}")
+
+    def quit(self):
+        """pygame.mixer를 종료합니다."""
+        if self._is_initialized:
+            pygame.mixer.quit()
 
 # VideoPlayer 클래스는 기존과 동일합니다.
 class VideoPlayer:
-    def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=1280, height=720):
+    def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=960, height=540):
         self.cv2 = cv2
-        self.__cap = cv2.VideoCapture(source)
+        self.__cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
         self.__cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.__cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         if not self.__cap.isOpened():
@@ -255,28 +178,42 @@ posture_score = 0.0
 neck_tilt = 0.0
 
 # --- UI 상수 정의 ---
+FRAME_WIDTH = 960
 PANEL_WIDTH = 350
-BUTTON_X_START = 1280 + 50
+BUTTON_X_OFFSET = 20  # UI 패널 내부의 X좌표 오프셋
 BUTTON_Y_START = 50
 BUTTON_WIDTH = 250
 BUTTON_HEIGHT = 60
 BUTTON_SPACING = 80
+# 마우스 클릭 감지를 위한 실제 창 기준 X좌표
+CLICK_BUTTON_X_START = FRAME_WIDTH + BUTTON_X_OFFSET
 
 def on_mouse_click(event, x, y, flags, param):
     global timer_running, show_results
     if event == cv2.EVENT_LBUTTONDOWN:
-        if BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
-           BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and not timer_running:
+        # Wrap conditions in parentheses to avoid using backslash
+        start_condition = (
+            CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
+            BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and
+            not timer_running
+        )
+        stop_condition = (
+            CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
+            (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and
+            timer_running
+        )
+
+        if start_condition:
             posture_timer.start_timer()
             timer_running = True
             show_results = False
             print("타이머 시작")
-        elif BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
-             (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and timer_running:
+        elif stop_condition:
             posture_timer.stop_timer()
             timer_running = False
             show_results = True
             print("타이머 종료. 분석 결과: ", posture_timer.stop_timer())
+
 
 def format_time(seconds):
     """초를 '00h 00m 00s' 형식의 문자열로 변환합니다."""
@@ -296,32 +233,31 @@ def draw_ui(frame, fps):
     
     ui_panel = np.zeros((frame.shape[0], PANEL_WIDTH, 3), dtype=np.uint8)
 
-    # --- 좌표 수정 (일관성을 위해 side 파일과 동일하게 왼쪽으로 이동) ---
-    x_offset = 20 # 모든 요소의 시작 x좌표
-
-    # 버튼 그리기
+    # 버튼 그리기 (패널 내부 좌표 사용)
     start_button_color = (0, 150, 0) if not timer_running else (50, 50, 50)
-    cv2.rectangle(ui_panel, (x_offset, BUTTON_Y_START), (x_offset + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), start_button_color, -1)
-    cv2.putText(ui_panel, 'Start Timer', (x_offset + 25, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START), (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), start_button_color, -1)
+    cv2.putText(ui_panel, 'Start Timer', (BUTTON_X_OFFSET + 45, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     stop_button_color = (0, 0, 150) if timer_running else (50, 50, 50)
-    cv2.rectangle(ui_panel, (x_offset, BUTTON_Y_START + BUTTON_SPACING), (x_offset + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
-    cv2.putText(ui_panel, 'Stop Timer', (x_offset + 35, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START + BUTTON_SPACING), (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
+    cv2.putText(ui_panel, 'Stop Timer', (BUTTON_X_OFFSET + 55, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    # 텍스트 y 좌표 시작 위치 조정 (버튼 아래로 충분한 간격 확보)
+    y_pos = BUTTON_Y_START + BUTTON_HEIGHT + BUTTON_SPACING + 40
 
     # 실시간 분석 정보
-    y_pos = 240
-    cv2.putText(ui_panel, "Real-time Analysis", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    y_pos += 40
-    cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(ui_panel, "Real-time Analysis", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
     y_pos += 30
-    cv2.putText(ui_panel, "(maintain over 0.9 score)", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-    y_pos += 60
-    cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    y_pos += 25
+    cv2.putText(ui_panel, "(maintain over 0.9 score)", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 2)
+    y_pos += 35
+    cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     
     # 타이머 결과
-    y_pos += 80
-    cv2.putText(ui_panel, "Analysis Results", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    y_pos += 40
+    y_pos += 45
+    cv2.putText(ui_panel, "Analysis Results", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    y_pos += 30
     current_total_time = (time.time() - posture_timer.start_time) if timer_running else posture_timer.total_time
     
     if timer_running or show_results:
@@ -329,26 +265,26 @@ def draw_ui(frame, fps):
         forward_neck_str = format_time(posture_timer.forward_neck_time)
         total_time_str = format_time(current_total_time)
         
-        cv2.putText(ui_panel, f"Forward Neck: {forward_neck_str}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 100, 255), 2)
-        y_pos += 30
-        cv2.putText(ui_panel, f"Total Time:   {total_time_str}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(ui_panel, f"Forward Neck: {forward_neck_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 2)
+        y_pos += 25
+        cv2.putText(ui_panel, f"Total Time:   {total_time_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
         
     # 캘리브레이션 정보
-    y_pos = frame.shape[0] - 180
-    cv2.putText(ui_panel, "--- Calibration ---", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    y_pos += 40
+    y_pos = frame.shape[0] - 120
+    cv2.putText(ui_panel, "--- Calibration ---", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    y_pos += 30
     if not calibrated:
-        cv2.putText(ui_panel, "Press 'c' to calibrate", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(ui_panel, "Press 'c' to calibrate", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
     else:
-        cv2.putText(ui_panel, "Calibrated! (Press 'c' again)", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.putText(ui_panel, "Calibrated! (Press 'c' again)", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     
     if time.time() - calibration_feedback_time < 2.5:
-        y_pos += 30
-        cv2.putText(ui_panel, calibration_feedback_text, (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        y_pos += 25
+        cv2.putText(ui_panel, calibration_feedback_text, (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
     # 성능 정보
-    y_pos = frame.shape[0] - 80
-    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (x_offset, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    y_pos = frame.shape[0] - 40
+    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
     return cv2.hconcat([frame, ui_panel])
 
@@ -594,8 +530,8 @@ def main():
             
             # 영상 리사이즈 (가로 1280에 맞게)
             h, w, _ = frame.shape
-            scale = 1280 / w
-            frame = cv2.resize(frame, (1280, int(h * scale)), interpolation=cv2.INTER_AREA)
+            scale = 960 / w
+            frame = cv2.resize(frame, (960, int(h * scale)), interpolation=cv2.INTER_AREA)
             
             current_time = time.time()
             delta_time = current_time - last_time

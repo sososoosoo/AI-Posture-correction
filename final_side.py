@@ -135,33 +135,44 @@ show_results = False
 posture_timer = PostureTimer(duration=1800)
 
 # --- UI 상수 정의 ---
+FRAME_WIDTH = 960
 PANEL_WIDTH = 350
-BUTTON_X_START = 1280 + 50
+BUTTON_X_OFFSET = 20  # UI 패널 내부의 X좌표 오프셋
 BUTTON_Y_START = 50
 BUTTON_WIDTH = 250
 BUTTON_HEIGHT = 60
 BUTTON_SPACING = 80
+# 마우스 클릭 감지를 위한 실제 창 기준 X좌표
+CLICK_BUTTON_X_START = FRAME_WIDTH + BUTTON_X_OFFSET
 
 
 # --- 마우스 클릭 이벤트 핸들러 ---
 def on_mouse_click(event, x, y, flags, param):
     global timer_running, show_results
     if event == cv2.EVENT_LBUTTONDOWN:
-        # 'Start Timer' 버튼 클릭 감지
-        if BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
-                BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and not timer_running:
+        # Wrap conditions in parentheses to avoid using backslash
+        start_condition = (
+            CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
+            BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and
+            not timer_running
+        )
+        stop_condition = (
+            CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
+            (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and
+            timer_running
+        )
+
+        if start_condition:
             posture_timer.start_timer()
             timer_running = True
             show_results = False
             print("타이머 시작")
-        # 'Stop Timer' 버튼 클릭 감지
-        elif BUTTON_X_START <= x <= BUTTON_X_START + BUTTON_WIDTH and \
-                (BUTTON_Y_START + BUTTON_SPACING) <= y <= (
-                BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and timer_running:
+        elif stop_condition:
             posture_timer.stop_timer()
             timer_running = False
             show_results = True
             print("타이머 종료. 분석 결과: ", posture_timer.stop_timer())
+
 
 
 # --- 이미지 전처리 및 모델 추론 함수 (기존과 동일) ---
@@ -219,34 +230,30 @@ def draw_ui(frame, fps, processing_time):
     # UI 패널 생성 (검은색 배경)
     ui_panel = np.zeros((frame.shape[0], PANEL_WIDTH, 3), dtype=np.uint8)
 
-    # --- 좌표 수정 ---
-    # 모든 요소의 시작 x좌표를 50 -> 20으로 변경
-    # 텍스트 x좌표도 그에 맞게 조절
-
     # 버튼 그리기
     # Start Timer 버튼
     start_button_color = (0, 150, 0) if not timer_running else (50, 50, 50)
-    cv2.rectangle(ui_panel, (20, BUTTON_Y_START), (20 + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT),
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START), (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT),
                   start_button_color, -1)
-    cv2.putText(ui_panel, 'Start Timer', (45, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    cv2.putText(ui_panel, 'Start Timer', (BUTTON_X_OFFSET + 45, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     # Stop Timer 버튼
     stop_button_color = (0, 0, 150) if timer_running else (50, 50, 50)
-    cv2.rectangle(ui_panel, (20, BUTTON_Y_START + BUTTON_SPACING),
-                  (20 + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
-    cv2.putText(ui_panel, 'Stop Timer', (55, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 1,
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START + BUTTON_SPACING),
+                  (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
+    cv2.putText(ui_panel, 'Stop Timer', (BUTTON_X_OFFSET + 55, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
                 (255, 255, 255), 2)
 
-    # 상태 및 결과 텍스트 표시
-    y_pos = 300
-    cv2.putText(ui_panel, "--- Status ---", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    y_pos += 40
+    # 상태 및 결과 텍스트 표시 (간격 조정)
+    y_pos = BUTTON_Y_START + BUTTON_HEIGHT + BUTTON_SPACING + 40
+    cv2.putText(ui_panel, "--- Status ---", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    y_pos += 30
     timer_status = "Running" if timer_running else "Stopped"
-    cv2.putText(ui_panel, f"Timer: {timer_status}", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(ui_panel, f"Timer: {timer_status}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
-    y_pos += 80
-    cv2.putText(ui_panel, "--- Analysis Results ---", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    y_pos += 40
+    y_pos += 50
+    cv2.putText(ui_panel, "--- Analysis Results ---", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    y_pos += 30
 
     current_total_time = (time.time() - posture_timer.start_time) if timer_running else posture_timer.total_time
 
@@ -256,23 +263,23 @@ def draw_ui(frame, fps, processing_time):
         forward_head_str = format_time(posture_timer.forward_head_time)
         total_time_str = format_time(current_total_time)
 
-        cv2.putText(ui_panel, f"Bad Posture:  {bad_posture_str}", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+        cv2.putText(ui_panel, f"Bad Posture:  {bad_posture_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     (0, 100, 255), 2)
-        y_pos += 30
-        cv2.putText(ui_panel, f"Forward Head: {forward_head_str}", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+        y_pos += 25
+        cv2.putText(ui_panel, f"Forward Head: {forward_head_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     (0, 100, 255), 2)
-        y_pos += 30
-        cv2.putText(ui_panel, f"Total Time:   {total_time_str}", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+        y_pos += 25
+        cv2.putText(ui_panel, f"Total Time:   {total_time_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
                     (255, 255, 255), 2)
 
     # 성능 정보 표시
-    y_pos = frame.shape[0] - 100
-    cv2.putText(ui_panel, "--- Performance ---", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 0), 2)
-    y_pos += 40
-    cv2.putText(ui_panel, f"Inference: {processing_time:.1f}ms", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                (255, 255, 255), 2)
+    y_pos = frame.shape[0] - 90
+    cv2.putText(ui_panel, "--- Performance ---", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
     y_pos += 30
-    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (20, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(ui_panel, f"Inference: {processing_time:.1f}ms", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (255, 255, 255), 2)
+    y_pos += 25
+    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
     # 영상 프레임과 UI 패널을 가로로 연결
     combined_frame = cv2.hconcat([frame, ui_panel])
