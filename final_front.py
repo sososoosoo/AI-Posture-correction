@@ -31,11 +31,14 @@ _ALARM_CANDIDATES = [
     os.path.join("webapp", "assets", "alarm.wav"),
     os.path.join("webapp", "assets", "alarm.mp3"),
 ]
+
+
 def _find_alarm_path():
     for p in _ALARM_CANDIDATES:
         if os.path.exists(p):
             return os.path.abspath(p)
     return None
+
 
 class AlarmPlayer:
     """
@@ -43,6 +46,7 @@ class AlarmPlayer:
     - MP3, WAV 등 다양한 포맷 지원
     - 무한 반복 및 중간 정지 기능
     """
+
     def __init__(self, sound_path: str | None):
         self.sound_path = sound_path
         self._is_initialized = False
@@ -57,7 +61,7 @@ class AlarmPlayer:
             print(f"알람 파일 '{sound_path}' 로드 성공.")
         except Exception as e:
             print(f"pygame mixer 초기화 또는 사운드 파일 로드 실패: {e}")
-            self.sound_path = None # 에러 발생 시 재생 시도 방지
+            self.sound_path = None  # 에러 발생 시 재생 시도 방지
 
     def start(self):
         """알람을 무한 반복으로 재생합니다."""
@@ -82,6 +86,7 @@ class AlarmPlayer:
         if self._is_initialized:
             pygame.mixer.quit()
 
+
 # VideoPlayer 클래스는 기존과 동일합니다.
 class VideoPlayer:
     def __init__(self, source, size=None, flip=False, fps=None, skip_first_frames=0, width=960, height=540):
@@ -101,7 +106,8 @@ class VideoPlayer:
         self.__interpolation = None
         if size is not None:
             self.__size = size
-            self.__interpolation = cv2.INTER_AREA if size[0] < self.__cap.get(cv2.CAP_PROP_FRAME_WIDTH) else cv2.INTER_LINEAR
+            self.__interpolation = cv2.INTER_AREA if size[0] < self.__cap.get(
+                cv2.CAP_PROP_FRAME_WIDTH) else cv2.INTER_LINEAR
         _, self.__frame = self.__cap.read()
         self.__lock = threading.Lock()
         self.__thread = None
@@ -145,6 +151,7 @@ class VideoPlayer:
             frame = self.cv2.flip(frame, 1)
         return frame
 
+
 # PostureTimer 클래스는 기존과 동일합니다.
 class PostureTimer:
     def __init__(self, duration):
@@ -172,6 +179,7 @@ class PostureTimer:
         if self.timer_active:
             self.forward_neck_time += duration
 
+
 # --- UI 및 타이머 상태 변수 ---
 timer_running = False
 show_results = False
@@ -190,19 +198,20 @@ BUTTON_SPACING = 80
 # 마우스 클릭 감지를 위한 실제 창 기준 X좌표
 CLICK_BUTTON_X_START = FRAME_WIDTH + BUTTON_X_OFFSET
 
+
 def on_mouse_click(event, x, y, flags, param):
     global timer_running, show_results
     if event == cv2.EVENT_LBUTTONDOWN:
         # Wrap conditions in parentheses to avoid using backslash
         start_condition = (
-            CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
-            BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and
-            not timer_running
+                CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
+                BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT and
+                not timer_running
         )
         stop_condition = (
-            CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
-            (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and
-            timer_running
+                CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and
+                (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT) and
+                timer_running
         )
 
         if start_condition:
@@ -225,6 +234,7 @@ def format_time(seconds):
     secs = seconds % 60
     return f"{hours:02d}h {minutes:02d}m {secs:02d}s"
 
+
 # --- 새롭게 정의된 UI 드로잉 함수 ---
 # --- 기존의 draw_ui 함수를 이 코드로 완전히 교체하세요 ---
 
@@ -232,67 +242,86 @@ def format_time(seconds):
 
 def draw_ui(frame, fps):
     global posture_score, neck_tilt, calibrated, calibration_feedback_text, calibration_feedback_time
-    
+
     ui_panel = np.zeros((frame.shape[0], PANEL_WIDTH, 3), dtype=np.uint8)
 
     # 버튼 그리기 (패널 내부 좌표 사용)
     start_button_color = (0, 150, 0) if not timer_running else (50, 50, 50)
-    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START), (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), start_button_color, -1)
-    cv2.putText(ui_panel, 'Start Timer', (BUTTON_X_OFFSET + 45, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START),
+                  (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), start_button_color, -1)
+    cv2.putText(ui_panel, 'Start Timer', (BUTTON_X_OFFSET + 45, BUTTON_Y_START + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                (255, 255, 255), 2)
 
     stop_button_color = (0, 0, 150) if timer_running else (50, 50, 50)
-    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START + BUTTON_SPACING), (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color, -1)
-    cv2.putText(ui_panel, 'Stop Timer', (BUTTON_X_OFFSET + 55, BUTTON_Y_START + BUTTON_SPACING + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START + BUTTON_SPACING),
+                  (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT), stop_button_color,
+                  -1)
+    cv2.putText(ui_panel, 'Stop Timer', (BUTTON_X_OFFSET + 55, BUTTON_Y_START + BUTTON_SPACING + 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
     # 텍스트 y 좌표 시작 위치 조정 (버튼 아래로 충분한 간격 확보)
     y_pos = BUTTON_Y_START + BUTTON_HEIGHT + BUTTON_SPACING + 40
 
     # 실시간 분석 정보
-    cv2.putText(ui_panel, "Real-time Analysis", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    cv2.putText(ui_panel, "Real-time Analysis", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0),
+                2)
     y_pos += 30
-    cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
+                0.5, (255, 255, 255), 2)
     y_pos += 25
-    cv2.putText(ui_panel, "(maintain over 0.9 score)", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 2)
+    cv2.putText(ui_panel, "(maintain over 0.9 score)", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+                (0, 0, 255), 2)
     y_pos += 35
-    cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-    
+    cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                (255, 255, 255), 2)
+
     # 타이머 결과
     y_pos += 45
-    cv2.putText(ui_panel, "Analysis Results", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    cv2.putText(ui_panel, "Analysis Results", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0),
+                2)
     y_pos += 30
     current_total_time = (time.time() - posture_timer.start_time) if timer_running else posture_timer.total_time
-    
+
     if timer_running or show_results:
         # format_time 함수를 사용하여 시간 표시 형식을 변경
         forward_neck_str = format_time(posture_timer.forward_neck_time)
         total_time_str = format_time(current_total_time)
-        
-        cv2.putText(ui_panel, f"Forward Neck: {forward_neck_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 2)
+
+        cv2.putText(ui_panel, f"Forward Neck: {forward_neck_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, (0, 100, 255), 2)
         y_pos += 25
-        cv2.putText(ui_panel, f"Total Time:   {total_time_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        
+        cv2.putText(ui_panel, f"Total Time:   {total_time_str}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5, (255, 255, 255), 2)
+
     # 캘리브레이션 정보
     y_pos = frame.shape[0] - 120
-    cv2.putText(ui_panel, "--- Calibration ---", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+    cv2.putText(ui_panel, "--- Calibration ---", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                (255, 255, 0), 2)
     y_pos += 30
     if not calibrated:
-        cv2.putText(ui_panel, "Press 'c' to calibrate", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        cv2.putText(ui_panel, "Press 'c' to calibrate", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (255, 255, 255), 2)
     else:
-        cv2.putText(ui_panel, "Calibrated! (Press 'c' again)", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-    
+        cv2.putText(ui_panel, "Calibrated! (Press 'c' again)", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (0, 255, 0), 2)
+
     if time.time() - calibration_feedback_time < 2.5:
         y_pos += 25
-        cv2.putText(ui_panel, calibration_feedback_text, (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-        
+        cv2.putText(ui_panel, calibration_feedback_text, (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (0, 255, 255), 2)
+
     # 성능 정보
     y_pos = frame.shape[0] - 40
-    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    cv2.putText(ui_panel, f"FPS: {fps:.1f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255),
+                2)
 
     return cv2.hconcat([frame, ui_panel])
+
 
 # ===== (추가) 화면 오버레이 알림 관리자 =====
 import tkinter as tk
 from threading import Thread
+
 
 class NotificationManager:
     def __init__(self):
@@ -328,7 +357,8 @@ class NotificationManager:
         self._root.mainloop()
 
     def _check_state(self):
-        print(f"[NotificationManager] _check_state: desired={self._is_showing_desired}, actual={self._is_showing_actual}")
+        print(
+            f"[NotificationManager] _check_state: desired={self._is_showing_desired}, actual={self._is_showing_actual}")
         if self._is_showing_desired and not self._is_showing_actual:
             print("[NotificationManager] deiconify called.")
             self._root.deiconify()
@@ -371,6 +401,7 @@ class FrontCore:
     - 외부에서 start/stop/reset/calibrate 제어 가능
     - 세션 데이터 추적 및 엑셀 내보내기 기능 포함
     """
+
     def __init__(self):
         # MediaPipe 초기화
         self.pose = mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
@@ -416,7 +447,6 @@ class FrontCore:
             self._alarm.stop()
             self._alarm_on = False
 
-
     # ---- 외부 제어용 ----
     def start_timer(self):
         self.timer_active = True
@@ -457,11 +487,11 @@ class FrontCore:
             "calibrated": self.calibrated,
             "session_id": self.current_session_id
         }
-    
+
     def get_all_sessions(self):
         """저장된 모든 세션 목록 반환"""
         return self.session_tracker.get_all_sessions()
-    
+
     def export_sessions_to_excel(self, session_ids: List[str] = None, include_details: bool = True):
         """세션을 엑셀로 내보내기"""
         if session_ids is None:
@@ -521,7 +551,7 @@ class FrontCore:
 
             ls, rs = lms[LS.value], lms[RS.value]
             ml, mr = lms[ML.value], lms[MR.value]
-            nose   = lms[NO.value]
+            nose = lms[NO.value]
             lh, rh = lms[LH.value], lms[RH.value]
             le, re = lms[LE.value], lms[RE.value]
 
@@ -545,17 +575,24 @@ class FrontCore:
                 max_dist = adjusted_ideal
                 min_dist = adjusted_ideal * 0.7
 
-            # posture_score: 1=좋음, 0=나쁨 (final_front.py 로직 그대로)
-            self.posture_score = max(0, min((d_norm - min_dist) / (max_dist - min_dist + 1e-6), 1))
+            # 기본 posture_score: 1=좋음, 0=나쁨 (앞뒤 움직임)
+            forward_backward_score = max(0, min((d_norm - min_dist) / (max_dist - min_dist + 1e-6), 1))
 
-            # 목 기울임
+            # 목 기울임 (좌우 움직임)
             shoulder_mid_x = (ls.x + rs.x) / 2.0
             self.neck_tilt = nose.x - shoulder_mid_x
             max_tilt_threshold = 0.08
             tilt_bad = abs(self.neck_tilt) > (max_tilt_threshold / 2.0)
+            
+            # 좌우 기울임 점수 (1=좋음, 0=나쁨)
+            left_right_score = max(0, 1 - (abs(self.neck_tilt) / max_tilt_threshold))
+            
+            # 종합 posture_score: 앞뒤(70%) + 좌우(30%) 가중 평균
+            self.posture_score = (forward_backward_score * 0.7) + (left_right_score * 0.3)
 
             # 색상 및 보조 라벨
-            red = int(255 * (1 - self.posture_score)); green = int(255 * self.posture_score)
+            red = int(255 * (1 - self.posture_score));
+            green = int(255 * self.posture_score)
             shoulder_color = (0, green, red)
 
             # 시각화
@@ -564,16 +601,25 @@ class FrontCore:
             cv2.circle(img, jaw_mid, 5, (0, 165, 255), -1)
             cv2.line(img, shoulder_mid, self._to_pixel(nose.x, nose.y, img.shape), (50, 200, 255), 2)
 
-            forward_head = (self.posture_score < 0.9)
-            self._update_alarm(forward_head)
-            # === (추가) 알람 상태 갱신
-            self._update_alarm(forward_head)
+            # 나쁜 자세 판정
+            forward_head = (forward_backward_score < 0.9)
+            overall_bad = (self.posture_score < 0.9)
+            
+            self._update_alarm(overall_bad)
+            
             label = []
             if forward_head: label.append("Forward Head")
-            if tilt_bad:     label.append("Neck Tilt")
-            if not label:    label.append("Good (Front)")
+            if tilt_bad:     label.append(f"Neck Tilt {'L' if self.neck_tilt < 0 else 'R'}")
+            if not label:    label.append("Good Posture")
+            
+            # 점수별 색상 표시
+            color = (0, 180, 0) if self.posture_score >= 0.9 else (0, 100, 255) if self.posture_score >= 0.7 else (0, 0, 255)
             cv2.putText(img, " | ".join(label), (20, 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255) if (forward_head or tilt_bad) else (0, 180, 0), 2, cv2.LINE_AA)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
+            
+            # 점수 세부 표시 추가
+            cv2.putText(img, f"F/B: {forward_backward_score:.2f} | L/R: {left_right_score:.2f}", (20, 130),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
 
             # 캘리브레이션 요청 처리
             if self._want_calibrate:
@@ -587,19 +633,19 @@ class FrontCore:
                         self.session_tracker.current_session.calibrated = True
 
             # 타이머 누적 및 세션 데이터 업데이트
-            bad_posture = forward_head or tilt_bad
+            bad_posture = overall_bad  # 종합 점수 기준으로 변경
             if self.timer_active and bad_posture:
                 self.forward_neck_time += dt
-            
+
             # 세션 트래킹에 자세 데이터 업데이트
             if self.timer_active:
                 self.session_tracker.update_posture(self.posture_score, bad_posture, "forward_neck")
 
             # HUD
             cv2.putText(img,
-                f"Bad: {self.forward_neck_time:5.1f}s | Total: {self.total_time:5.1f}s | Calib: {'Y' if self.calibrated else 'N'}",
-                (20, img.shape[0]-22), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                (0, 0, 255) if bad_posture else (120, 120, 120), 2, cv2.LINE_AA)
+                        f"Bad: {self.forward_neck_time:5.1f}s | Total: {self.total_time:5.1f}s | Calib: {'Y' if self.calibrated else 'N'}",
+                        (20, img.shape[0] - 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (0, 0, 255) if bad_posture else (120, 120, 120), 2, cv2.LINE_AA)
 
         else:
             # 미검출: 알람 강제 OFF
@@ -609,6 +655,7 @@ class FrontCore:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
 
         return img
+
 
 def main():
     global posture_score, neck_tilt
@@ -628,7 +675,7 @@ def main():
 
         player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30, width=960, height=540)
         player.start()
-        
+
         title = "AI Front Posture Analysis"
         cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(title, on_mouse_click)
@@ -639,9 +686,7 @@ def main():
             frame = player.next()
             if frame is None:
                 break
-            
-            
-            
+
             current_time = time.time()
             delta_time = current_time - last_time
             last_time = current_time
@@ -672,22 +717,22 @@ def main():
                             adjusted_ideal_dist = calibrated_chin_shoulder_dist * scale_factor
                             max_dist = adjusted_ideal_dist
                             min_dist = adjusted_ideal_dist * 0.7
-                    
+
                     posture_score = max(0, min((distance - min_dist) / (max_dist - min_dist + 1e-6), 1))
                     red_color, green_color = 255 * (1 - posture_score), 255 * posture_score
                     shoulder_color = (0, green_color, red_color)
-                    
+
                     left_shoulder_px = (int(left_shoulder.x * frame_width), int(left_shoulder.y * frame_height))
                     right_shoulder_px = (int(right_shoulder.x * frame_width), int(right_shoulder.y * frame_height))
                     cv2.line(frame, left_shoulder_px, right_shoulder_px, shoulder_color, 3)
 
                     shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2
                     neck_tilt = (nose.x - shoulder_mid_x) - calibrated_neck_tilt_offset
-                    
+
                     max_tilt_threshold = 0.08
                     tilt_ratio = max(0, 1 - (abs(neck_tilt) / max_tilt_threshold))
                     tilt_color = (0, 255 * tilt_ratio, 255 * (1 - tilt_ratio))
-                    
+
                     nose_px = (int(nose.x * frame_width), int(nose.y * frame_height))
                     shoulder_mid_px = (int(shoulder_mid_x * frame_width), int(shoulder_y * frame_height))
                     cv2.line(frame, nose_px, shoulder_mid_px, tilt_color, 2)
@@ -708,11 +753,12 @@ def main():
                         if _alarm_local_on and _alarm_local:
                             _alarm_local.stop()
                             _alarm_local_on = False
-                    
+
                     # 2. 화면 오버레이 알림 로직
             print(f"[Main Loop] should_alarm: {should_alarm}, is_minimized: {is_minimized}")
             print(f"[Main Loop] calibrated: {calibrated}, posture_score: {posture_score:.2f}")
-            print(f"[Main Loop] cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE): {cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE)}")
+            print(
+                f"[Main Loop] cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE): {cv2.getWindowProperty(title, cv2.WND_PROP_VISIBLE)}")
             if should_alarm and is_minimized:
                 print("[Main Loop] Calling notification_manager.show()")
                 notification_manager.show()
@@ -729,13 +775,14 @@ def main():
             player.stop()
         if _alarm_local is not None:
             _alarm_local.quit()
-        
+
         # === (추가) 알림 관리자 종료 ===
         print("[Main Loop] Calling notification_manager.quit()")
         notification_manager.quit()
-        
+
         pose.close()
         cv2.destroyAllWindows()
+
 
 def main():
     global posture_score, neck_tilt
@@ -756,7 +803,7 @@ def main():
 
         player = VideoPlayer(source=VIDEO_SOURCE, flip=True, fps=30, width=960, height=540)
         player.start()
-        
+
         title = "AI Front Posture Analysis"
         cv2.namedWindow(title, cv2.WINDOW_AUTOSIZE)
         cv2.setMouseCallback(title, on_mouse_click)
@@ -767,9 +814,7 @@ def main():
             frame = player.next()
             if frame is None:
                 break
-            
-            
-            
+
             current_time = time.time()
             delta_time = current_time - last_time
             last_time = current_time
@@ -800,22 +845,22 @@ def main():
                             adjusted_ideal_dist = calibrated_chin_shoulder_dist * scale_factor
                             max_dist = adjusted_ideal_dist
                             min_dist = adjusted_ideal_dist * 0.7
-                    
+
                     posture_score = max(0, min((distance - min_dist) / (max_dist - min_dist + 1e-6), 1))
                     red_color, green_color = 255 * (1 - posture_score), 255 * posture_score
                     shoulder_color = (0, green_color, red_color)
-                    
+
                     left_shoulder_px = (int(left_shoulder.x * frame_width), int(left_shoulder.y * frame_height))
                     right_shoulder_px = (int(right_shoulder.x * frame_width), int(right_shoulder.y * frame_height))
                     cv2.line(frame, left_shoulder_px, right_shoulder_px, shoulder_color, 3)
 
                     shoulder_mid_x = (left_shoulder.x + right_shoulder.x) / 2
                     neck_tilt = (nose.x - shoulder_mid_x) - calibrated_neck_tilt_offset
-                    
+
                     max_tilt_threshold = 0.08
                     tilt_ratio = max(0, 1 - (abs(neck_tilt) / max_tilt_threshold))
                     tilt_color = (0, 255 * tilt_ratio, 255 * (1 - tilt_ratio))
-                    
+
                     nose_px = (int(nose.x * frame_width), int(nose.y * frame_height))
                     shoulder_mid_px = (int(shoulder_mid_x * frame_width), int(shoulder_y * frame_height))
                     cv2.line(frame, nose_px, shoulder_mid_px, tilt_color, 2)
@@ -836,7 +881,7 @@ def main():
                         if _alarm_local_on and _alarm_local:
                             _alarm_local.stop()
                             _alarm_local_on = False
-                    
+
                     # 2. 화면 오버레이 알림 로직
                     if should_alarm and is_minimized:
                         notification_manager.show()
@@ -845,11 +890,11 @@ def main():
 
             display_frame = draw_ui(frame, fps)
             cv2.imshow(title, display_frame)
-            
+
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q') or key == 27:
                 break
-            
+
             if key == ord('c'):
                 if results.pose_landmarks:
                     landmarks = results.pose_landmarks.landmark
@@ -858,11 +903,11 @@ def main():
                         right_shoulder = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER]
                         mouth_left = landmarks[mp_pose.PoseLandmark.MOUTH_LEFT]
                         mouth_right = landmarks[mp_pose.PoseLandmark.MOUTH_RIGHT]
-                        
+
                         shoulder_y = (left_shoulder.y + right_shoulder.y) / 2
                         chin_y = (mouth_left.y + mouth_right.y) / 2
                         calibrated_chin_shoulder_dist = abs(shoulder_y - chin_y)
-                        
+
                         h, w, _ = frame.shape
                         l_s_px = left_shoulder.x * w
                         r_s_px = right_shoulder.x * w
@@ -887,12 +932,13 @@ def main():
             player.stop()
         if _alarm_local is not None:
             _alarm_local.quit()
-        
+
         # === (추가) 알림 관리자 종료 ===
         notification_manager.quit()
-        
+
         pose.close()
         cv2.destroyAllWindows()
+
 
 if __name__ == '__main__':
     main()

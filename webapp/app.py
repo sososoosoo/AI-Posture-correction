@@ -12,7 +12,11 @@ import cv2
 import numpy as np
 import streamlit as st
 import mediapipe as mp
-from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfiguration, WebRtcMode
+from streamlit_webrtc import webrtc_streamer, RTCConfiguration, WebRtcMode
+try:
+    from streamlit_webrtc import VideoProcessorBase
+except ImportError:
+    from streamlit_webrtc import VideoTransformerBase as VideoProcessorBase
 
 # [추가: base64 로더 & 에셋 경로]
 import base64
@@ -78,7 +82,7 @@ def make_front_transformer():
     ff = importlib.reload(ff)  # 새로고침 시 최신 반영
     FrontCore = getattr(ff, "FrontCore")  # 위 1)에서 추가한 클래스
 
-    class FrontTransformer(VideoTransformerBase):
+    class FrontTransformer(VideoProcessorBase):
         def __init__(self):
             self.core = FrontCore()
 
@@ -103,29 +107,96 @@ def make_front_transformer():
 
 
 def make_side_transformer():
-    fs = importlib.import_module("final_side")
-    fs = importlib.reload(fs)  # 새로고침 시 최신 반영
-    SideCore = getattr(fs, "SideCore")  # 위 2)에서 추가한 클래스
-
-    class SideTransformer(VideoTransformerBase):
+    # 간단한 측면 자세 분석을 위한 MediaPipe 기반 클래스
+    class SideTransformer(VideoProcessorBase):
         def __init__(self):
-            self.core = SideCore()
+            self.timer_active = False
+            self.start_time = None
+            self.total_time = 0.0
+            self.forward_neck_time = 0.0
+            self.last_time = time.time()
+            
+            # MediaPipe 초기화
+            import mediapipe as mp
+            self.mp_pose = mp.solutions.pose
+            self.pose = self.mp_pose.Pose(min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
-        def start_measure(self): self.core.start_timer()
-        def stop_measure(self):  self.core.stop_timer()
-        def reset_all(self):     self.core.reset_all()
-        def get_stats(self):     return self.core.get_stats()
+        def start_measure(self): 
+            self.timer_active = True
+            self.start_time = time.time()
+            self.total_time = 0.0
+            self.forward_neck_time = 0.0
+            self.last_time = time.time()
+            
+        def stop_measure(self):  
+            self.timer_active = False
+            
+        def reset_all(self):     
+            self.timer_active = False
+            self.start_time = None
+            self.total_time = 0.0
+            self.forward_neck_time = 0.0
+            
+        def get_stats(self):     
+            return f"Total: {self.total_time:.1f}s | Bad: {self.forward_neck_time:.1f}s | (Simple Side Analysis)"
 
         def recv(self, frame: av.VideoFrame):
             img = frame.to_ndarray(format="bgr24")
-            out = self.core.process_frame(img)
-            return av.VideoFrame.from_ndarray(out, format="bgr24")
+            img = cv2.flip(img, 1)
+            
+            # 시간 업데이트
+            now = time.time()
+            dt = now - self.last_time
+            self.last_time = now
+            if self.timer_active:
+                self.total_time += dt
+            
+            # MediaPipe 처리
+            results = self.pose.process(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            
+            if results.pose_landmarks:
+                # 간단한 목-어깨 각도 계산 (측면)
+                landmarks = results.pose_landmarks.landmark
+                nose = landmarks[self.mp_pose.PoseLandmark.NOSE]
+                left_ear = landmarks[self.mp_pose.PoseLandmark.LEFT_EAR]
+                left_shoulder = landmarks[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
+                
+                # 각도 계산 (간단버전)
+                angle = _angle_3pt(
+                    np.array([nose.x, nose.y]),
+                    np.array([left_ear.x, left_ear.y]), 
+                    np.array([left_shoulder.x, left_shoulder.y])
+                )
+                
+                # 나쁜 자세 판정 (각도가 너무 작으면 forward head)
+                is_bad_posture = angle < 160  # 임계값
+                
+                if self.timer_active and is_bad_posture:
+                    self.forward_neck_time += dt
+                
+                # 시각화
+                h, w, _ = img.shape
+                nose_px = (int(nose.x * w), int(nose.y * h))
+                shoulder_px = (int(left_shoulder.x * w), int(left_shoulder.y * h))
+                ear_px = (int(left_ear.x * w), int(left_ear.y * h))
+                
+                color = (0, 0, 255) if is_bad_posture else (0, 255, 0)
+                cv2.line(img, ear_px, nose_px, color, 2)
+                cv2.line(img, ear_px, shoulder_px, color, 2)
+                cv2.putText(img, f"Angle: {angle:.1f}", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                
+                status = "Forward Head" if is_bad_posture else "Good Posture"
+                cv2.putText(img, status, (20, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+            else:
+                cv2.putText(img, "No person detected", (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+            
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
 
     return SideTransformer
 
 # ===== Streamlit UI =====
 st.set_page_config(
-    page_title="PoseGuard Web",
+    page_title="BOAA-Posture",
     layout="wide",
     initial_sidebar_state="expanded",
 )
