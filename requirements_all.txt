@@ -5,7 +5,6 @@ mediapipe==0.10.14
 torch==2.8.0
 openvino==2024.6.0
 openvino-dev==2024.6.0
-pandas==2.3.2
 matplotlib==3.9.0
 kiwisolver==1.4.9
 seaborn==0.13.2
@@ -13,4 +12,9 @@ tqdm==4.67.1
 ultralytics==8.3.190
 ipython==9.5.0
 playsound==1.2.2
-pygame
+pygame==2.6.1
+pandas==2.3.2
+openpyxl==3.1.5
+streamlit==1.49.1
+streamlit-webrtc==0.63.4
+av==14.4.0
