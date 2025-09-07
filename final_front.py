@@ -5,6 +5,7 @@ import collections
 import threading
 import numpy as np
 import tkinter as tk
+from typing import List, Optional
 
 # MediaPipe Pose 솔루션 초기화
 mp_pose = mp.solutions.pose
@@ -368,6 +369,7 @@ class FrontCore:
     - Streamlit WebRTC에서 매 프레임 호출되는 process_frame()을 제공
     - 기존 final_front.py의 계산식을 그대로 사용하되, OpenCV 윈도우/마우스 콜백/VideoPlayer는 제거
     - 외부에서 start/stop/reset/calibrate 제어 가능
+    - 세션 데이터 추적 및 엑셀 내보내기 기능 포함
     """
     def __init__(self):
         # MediaPipe 초기화
@@ -391,6 +393,11 @@ class FrontCore:
         alarm_path = _find_alarm_path()
         self._alarm = AlarmPlayer(alarm_path)
         self._alarm_on = False
+
+        # === (추가) 세션 트래킹 ===
+        from session_tracker import get_session_tracker
+        self.session_tracker = get_session_tracker()
+        self.current_session_id = None
 
         # === (추가) posture_score 기준 알람 토글
 
@@ -417,6 +424,8 @@ class FrontCore:
         self.forward_neck_time = 0.0
         self.total_time = 0.0
         self.last_time = time.time()
+        # 세션 시작
+        self.current_session_id = self.session_tracker.start_session()
 
     def reset_all(self):
         self.timer_active = False
@@ -433,6 +442,8 @@ class FrontCore:
         if self._alarm_on and self._alarm:
             self._alarm.stop()
             self._alarm_on = False
+        # 세션 초기화
+        self.current_session_id = None
 
     def request_calibration(self):
         self._want_calibrate = True
@@ -443,8 +454,19 @@ class FrontCore:
             "forward_neck": self.forward_neck_time,
             "posture_score": self.posture_score,
             "neck_tilt": self.neck_tilt,
-            "calibrated": self.calibrated
+            "calibrated": self.calibrated,
+            "session_id": self.current_session_id
         }
+    
+    def get_all_sessions(self):
+        """저장된 모든 세션 목록 반환"""
+        return self.session_tracker.get_all_sessions()
+    
+    def export_sessions_to_excel(self, session_ids: List[str] = None, include_details: bool = True):
+        """세션을 엑셀로 내보내기"""
+        if session_ids is None:
+            session_ids = self.get_all_sessions()
+        return self.session_tracker.export_to_excel(session_ids, include_details)
 
     def stop_timer(self):
         self.timer_active = False
@@ -452,6 +474,11 @@ class FrontCore:
         if self._alarm_on and self._alarm:
             self._alarm.stop()
             self._alarm_on = False
+        # 세션 종료
+        if self.current_session_id:
+            session_data = self.session_tracker.stop_session()
+            return session_data
+        return None
 
     # ---- 내부 유틸 ----
     @staticmethod
@@ -555,11 +582,18 @@ class FrontCore:
                     self.calibrated_shoulder_width_px = shoulder_w_px
                     self.calibrated = True
                     self._want_calibrate = False
+                    # 세션에 캘리브레이션 상태 업데이트
+                    if self.session_tracker.current_session:
+                        self.session_tracker.current_session.calibrated = True
 
-            # 타이머 누적
+            # 타이머 누적 및 세션 데이터 업데이트
             bad_posture = forward_head or tilt_bad
             if self.timer_active and bad_posture:
                 self.forward_neck_time += dt
+            
+            # 세션 트래킹에 자세 데이터 업데이트
+            if self.timer_active:
+                self.session_tracker.update_posture(self.posture_score, bad_posture, "forward_neck")
 
             # HUD
             cv2.putText(img,

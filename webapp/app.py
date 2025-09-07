@@ -18,6 +18,8 @@ from streamlit_webrtc import webrtc_streamer, VideoTransformerBase, RTCConfigura
 import base64
 from pathlib import Path
 import sys, importlib  # (기존에 있다면 중복 import 제거)
+import os
+import datetime
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -86,6 +88,11 @@ def make_front_transformer():
         def reset_all(self):     self.core.reset_all()
         def request_calibration(self): self.core.request_calibration()
         def get_stats(self):     return self.core.get_stats()
+        
+        # 세션 추적 관련 메서드들
+        def get_all_sessions(self): return self.core.get_all_sessions()
+        def export_sessions_to_excel(self, session_ids, include_details=True): 
+            return self.core.export_sessions_to_excel(session_ids, include_details)
 
         def recv(self, frame: av.VideoFrame):
             img = frame.to_ndarray(format="bgr24")
@@ -304,20 +311,22 @@ if mode == "정면 자세 교정":
     ctx_front = webrtc_streamer(
         key="front",
         mode=WebRtcMode.SENDRECV,
-        video_transformer_factory=make_front_transformer(),
+        video_processor_factory=make_front_transformer(),
         rtc_configuration=rtc_cfg,
         media_stream_constraints={"video": {"facingMode": "user"}, "audio": False},
         async_processing=True,
     )
 
     col1, col2, col3, col4 = st.columns(4)
-    if ctx_front and ctx_front.video_transformer:
-        if col1.button("측정 시작"):   ctx_front.video_transformer.start_measure()
-        if col2.button("측정 정지"):   ctx_front.video_transformer.stop_measure()
-        if col3.button("캘리브레이션"): ctx_front.video_transformer.request_calibration()
-        if col4.button("리셋"):       ctx_front.video_transformer.reset_all()
+    # video_processor 또는 video_transformer 확인
+    processor = getattr(ctx_front, 'video_processor', None) or getattr(ctx_front, 'video_transformer', None)
+    if ctx_front and processor:
+        if col1.button("측정 시작"):   processor.start_measure()
+        if col2.button("측정 정지"):   processor.stop_measure()
+        if col3.button("캘리브레이션"): processor.request_calibration()
+        if col4.button("리셋"):       processor.reset_all()
 
-        stats = ctx_front.video_transformer.get_stats()
+        stats = processor.get_stats()
         st.caption(
             f"**측정 시간**: {stats['total']:.1f}s  |  "
             f"**나쁜 자세 누적**: {stats['forward_neck']:.1f}s  |  "
@@ -325,6 +334,87 @@ if mode == "정면 자세 교정":
             f"**Neck Tilt**: {stats['neck_tilt']:.3f}  |  "
             f"**Calibrated**: {'Yes' if stats['calibrated'] else 'No'}"
         )
+        
+        # 엑셀 다운로드 섹션
+        st.markdown("---")
+        st.subheader("📊 세션 데이터 다운로드")
+        
+        # 세션 목록 가져오기
+        try:
+            all_sessions = processor.get_all_sessions()
+            if all_sessions:
+                col1, col2 = st.columns([2, 1])
+                with col1:
+                    # 세션 선택 (다중 선택)
+                    selected_sessions = st.multiselect(
+                        "다운로드할 세션 선택 (기본: 모든 세션)",
+                        options=all_sessions,
+                        default=all_sessions[:5] if len(all_sessions) > 5 else all_sessions,  # 최근 5개만 기본 선택
+                        help="Ctrl/Cmd 키를 눌러 여러 세션을 선택할 수 있습니다"
+                    )
+                with col2:
+                    # 상세 로그 포함 여부
+                    include_details = st.checkbox(
+                        "구간별 상세로그 포함", 
+                        value=False,
+                        help="체크하면 언제언제 forward neck이었는지 구간별 상세 정보가 포함됩니다"
+                    )
+                
+                # 다운로드 버튼
+                if st.button("📥 엑셀 파일 생성 & 다운로드", type="primary", disabled=not selected_sessions):
+                    if selected_sessions:
+                        try:
+                            with st.spinner("엑셀 파일을 생성하는 중..."):
+                                excel_path = processor.export_sessions_to_excel(
+                                    selected_sessions, 
+                                    include_details
+                                )
+                                
+                            if excel_path and os.path.exists(excel_path):
+                                # 파일 읽기
+                                with open(excel_path, "rb") as file:
+                                    excel_data = file.read()
+                                
+                                # 다운로드 버튼 생성
+                                filename = f"자세분석_리포트_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                                st.download_button(
+                                    label="💾 엑셀 파일 다운로드",
+                                    data=excel_data,
+                                    file_name=filename,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    type="secondary"
+                                )
+                                
+                                st.success(f"✅ 엑셀 파일이 생성되었습니다! ({len(selected_sessions)}개 세션)")
+                                
+                                # 임시 파일 정리
+                                try:
+                                    os.remove(excel_path)
+                                except:
+                                    pass
+                                    
+                            else:
+                                st.error("엑셀 파일 생성에 실패했습니다.")
+                                
+                        except Exception as e:
+                            st.error(f"엑셀 내보내기 중 오류가 발생했습니다: {str(e)}")
+                            # pandas 설치 안내
+                            if "pandas" in str(e).lower():
+                                st.info("💡 엑셀 내보내기를 위해 pandas 라이브러리가 필요합니다. `pip install pandas openpyxl`을 실행해주세요.")
+                
+                # 세션 정보 미리보기
+                if selected_sessions:
+                    with st.expander(f"📋 선택된 세션 정보 ({len(selected_sessions)}개)"):
+                        for session_id in selected_sessions[:3]:  # 최대 3개만 미리보기
+                            st.text(f"• {session_id}")
+                        if len(selected_sessions) > 3:
+                            st.text(f"... 외 {len(selected_sessions) - 3}개")
+                            
+            else:
+                st.info("저장된 세션이 없습니다. 먼저 '측정 시작' → '측정 정지'를 통해 세션을 생성해주세요.")
+                
+        except Exception as e:
+            st.error(f"세션 데이터를 불러오는 중 오류가 발생했습니다: {str(e)}")
     else:
         st.info("**Start** 버튼을 먼저 눌러주세요.")
 
@@ -334,17 +424,18 @@ elif mode == "측면 자세 교정":
     ctx_side = webrtc_streamer(
         key="side",
         mode=WebRtcMode.SENDRECV,
-        video_transformer_factory=make_side_transformer(),
+        video_processor_factory=make_side_transformer(),
         rtc_configuration=rtc_cfg,
         media_stream_constraints={"video": {"facingMode": "environment"}, "audio": False},
         async_processing=True,
     )
 
     c1, c2, c3 = st.columns(3)
-    if ctx_side and ctx_side.video_transformer:
-        if c1.button("측정 시작(측면)"): ctx_side.video_transformer.start_measure()
-        if c2.button("측정 정지(측면)"): ctx_side.video_transformer.stop_measure()
-        if c3.button("리셋(측면)"):     ctx_side.video_transformer.reset_all()
-        st.caption(ctx_side.video_transformer.get_stats())
+    side_processor = getattr(ctx_side, 'video_processor', None) or getattr(ctx_side, 'video_transformer', None)
+    if ctx_side and side_processor:
+        if c1.button("측정 시작(측면)"): side_processor.start_measure()
+        if c2.button("측정 정지(측면)"): side_processor.stop_measure()
+        if c3.button("리셋(측면)"):     side_processor.reset_all()
+        st.caption(side_processor.get_stats())
     else:
         st.info("**Start** 버튼을 먼저 눌러주세요.")
