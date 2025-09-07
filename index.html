@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 자세분석 - Where Body meets AI</title>
+    <meta name="description" content="AI 기반 실시간 자세 분석 시스템. 건강한 자세 습관을 만들어보세요.">
+    <meta name="keywords" content="AI, 자세분석, 건강, 자세교정, 실시간분석">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://yourname.github.io/AI-posture/">
+    <meta property="og:title" content="AI 자세분석 - Where Body meets AI">
+    <meta property="og:description" content="AI 기반 실시간 자세 분석 시스템">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://yourname.github.io/AI-posture/">
+    <meta property="twitter:title" content="AI 자세분석 - Where Body meets AI">
+    <meta property="twitter:description" content="AI 기반 실시간 자세 분석 시스템">
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            padding: 1rem 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #000;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .nav-menu {
+            display: flex;
+            list-style: none;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .nav-link {
+            text-decoration: none;
+            color: #666;
+            font-weight: 400;
+            transition: color 0.3s ease;
+            cursor: pointer;
+            padding: 0.5rem 0;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            color: #000;
+        }
+
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 6rem 2rem 2rem;
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            position: relative;
+        }
+
+        .hero-content {
+            max-width: 800px;
+            text-align: center;
+            animation: fadeInUp 1s ease-out;
+        }
+
+        .emoji-icons {
+            font-size: 3rem;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            animation: bounce 2s infinite;
+        }
+
+        .hero-title {
+            font-size: 3.5rem;
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            color: #000;
+        }
+
+        .hero-subtitle {
+            font-size: 1.2rem;
+            color: #666;
+            margin-bottom: 3rem;
+            font-weight: 300;
+        }
+
+        .hero-description {
+            font-size: 1.1rem;
+            color: #555;
+            line-height: 1.8;
+            margin-bottom: 3rem;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.8rem 2rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: #000;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #333;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: #000;
+            border: 1px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #f8f9fa;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .section {
+            padding: 6rem 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 3rem;
+            color: #000;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 4rem;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            transition: all 0.3s ease;
+            animation: fadeInUp 0.6s ease-out forwards;
+            opacity: 0;
+            transform: translateY(30px);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .feature-card:nth-child(1) { animation-delay: 0.1s; }
+        .feature-card:nth-child(2) { animation-delay: 0.2s; }
+        .feature-card:nth-child(3) { animation-delay: 0.3s; }
+        .feature-card:nth-child(4) { animation-delay: 0.4s; }
+        .feature-card:nth-child(5) { animation-delay: 0.5s; }
+        .feature-card:nth-child(6) { animation-delay: 0.6s; }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .feature-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #000;
+        }
+
+        .feature-description {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .download-section {
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            padding: 4rem 2rem;
+            border-radius: 16px;
+            text-align: center;
+            margin: 2rem 0;
+            animation: slideInFromBottom 0.8s ease-out;
+        }
+
+        .version-badge {
+            background: linear-gradient(135deg, #000 0%, #333 100%);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: inline-block;
+            margin-bottom: 1.5rem;
+            animation: pulse 2s infinite;
+        }
+
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .download-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            text-align: center;
+            transition: all 0.3s ease;
+            animation: scaleIn 0.5s ease-out forwards;
+            opacity: 0;
+            transform: scale(0.9);
+        }
+
+        .download-card:nth-child(1) { animation-delay: 0.2s; }
+        .download-card:nth-child(2) { animation-delay: 0.4s; }
+
+        .download-card:hover {
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+
+        .specs {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 2rem;
+            margin-top: 3rem;
+            animation: fadeIn 1s ease-out;
+        }
+
+        .specs-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: #000;
+        }
+
+        .specs-list {
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+
+        .specs-list li {
+            padding: 0.8rem 0;
+            color: #555;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            animation: slideInFromLeft 0.6s ease-out forwards;
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+
+        .specs-list li:nth-child(1) { animation-delay: 0.1s; }
+        .specs-list li:nth-child(2) { animation-delay: 0.2s; }
+        .specs-list li:nth-child(3) { animation-delay: 0.3s; }
+        .specs-list li:nth-child(4) { animation-delay: 0.4s; }
+        .specs-list li:nth-child(5) { animation-delay: 0.5s; }
+        .specs-list li:nth-child(6) { animation-delay: 0.6s; }
+
+        .specs-list li:before {
+            content: "✓";
+            color: #22c55e;
+            font-weight: 600;
+        }
+
+        .footer {
+            background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
+            color: white;
+            padding: 3rem 2rem 2rem;
+            text-align: center;
+            margin-top: 4rem;
+        }
+
+        .scroll-indicator {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 24px;
+            height: 40px;
+            border: 2px solid #666;
+            border-radius: 12px;
+            display: flex;
+            justify-content: center;
+            padding-top: 8px;
+        }
+
+        .scroll-indicator:before {
+            content: '';
+            width: 4px;
+            height: 8px;
+            background: #666;
+            border-radius: 2px;
+            animation: scroll 2s infinite;
+        }
+
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .fade-enter {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        .fade-enter-active {
+            opacity: 1;
+            transform: translateY(0);
+            transition: all 0.6s ease-out;
+        }
+
+        .fade-exit {
+            opacity: 1;
+        }
+
+        .fade-exit-active {
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.3s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideInFromBottom {
+            from { opacity: 0; transform: translateY(50px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes slideInFromLeft {
+            from { opacity: 0; transform: translateX(-30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        @keyframes scaleIn {
+            from { opacity: 0; transform: scale(0.8); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-10px); }
+            60% { transform: translateY(-5px); }
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(0, 0, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+        }
+
+        @keyframes scroll {
+            0% { transform: translateY(0); opacity: 1; }
+            100% { transform: translateY(12px); opacity: 0; }
+        }
+
+        @media (max-width: 768px) {
+            .hero-title { font-size: 2.5rem; }
+            .nav-menu { 
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(10px);
+                flex-direction: column;
+                padding: 1rem 2rem;
+                border-top: 1px solid rgba(0, 0, 0, 0.1);
+            }
+            .nav-menu.open { display: flex; }
+            .mobile-menu-btn { display: block; }
+            .hero-buttons { flex-direction: column; align-items: center; }
+            .emoji-icons { font-size: 2rem; }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .release-link {
+            color: #0066cc;
+            text-decoration: none;
+        }
+
+        .release-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('home');
+            const [isLoading, setIsLoading] = useState({});
+            const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+            const handleTabChange = (tab) => {
+                setActiveTab(tab);
+                setMobileMenuOpen(false);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            const handleDownload = async (platform) => {
+                setIsLoading({ ...isLoading, [platform]: true });
+                
+                // GitHub Releases 링크로 리다이렉트
+                setTimeout(() => {
+                    if (platform === 'windows') {
+                        // 실제 GitHub Release 링크로 변경 필요
+                        window.open('https://github.com/yourname/AI-posture/releases/latest', '_blank');
+                    }
+                    setIsLoading({ ...isLoading, [platform]: false });
+                }, 1000);
+            };
+
+            const Navbar = () => (
+                <nav className="navbar">
+                    <div className="nav-container">
+                        <a href="#" className="logo" onClick={() => handleTabChange('home')}>🤖 AI 자세분석</a>
+                        <button 
+                            className="mobile-menu-btn"
+                            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                        >
+                            ☰
+                        </button>
+                        <ul className={`nav-menu ${mobileMenuOpen ? 'open' : ''}`}>
+                            {[
+                                {key: 'home', label: 'Home'},
+                                {key: 'about', label: 'About'},
+                                {key: 'features', label: 'Features'},
+                                {key: 'download', label: 'Download'},
+                                {key: 'contact', label: 'Contact'}
+                            ].map(item => (
+                                <li key={item.key}>
+                                    <a 
+                                        href="#" 
+                                        className={`nav-link ${activeTab === item.key ? 'active' : ''}`}
+                                        onClick={(e) => { e.preventDefault(); handleTabChange(item.key); }}
+                                    >
+                                        {item.label}
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </nav>
+            );
+
+            const Hero = () => (
+                <section className="hero">
+                    <div className="hero-content">
+                        <div className="emoji-icons">
+                            <span>🤖</span>
+                            <span>📊</span>
+                            <span>🎯</span>
+                            <span>⚡</span>
+                        </div>
+                        <h1 className="hero-title">Where Body meets AI</h1>
+                        <p className="hero-subtitle">AI 기반 실시간 자세 분석 시스템</p>
+                        <p className="hero-description">
+                            최신 인공지능 기술과 컴퓨터 비전을 활용하여 실시간으로 자세를 분석하고 
+                            개선 방향을 제시하는 혁신적인 솔루션입니다. 건강한 자세 습관을 만들어보세요.
+                        </p>
+                        <div className="hero-buttons">
+                            <button 
+                                className="btn btn-primary" 
+                                onClick={() => handleTabChange('download')}
+                            >
+                                다운로드 하기
+                            </button>
+                            <button 
+                                className="btn btn-secondary" 
+                                onClick={() => handleTabChange('features')}
+                            >
+                                기술 살펴보기
+                            </button>
+                        </div>
+                    </div>
+                    <div className="scroll-indicator"></div>
+                </section>
+            );
+
+            const About = () => (
+                <section className="section">
+                    <h2 className="section-title">About AI 자세분석</h2>
+                    <div className="hero-description" style={{textAlign: 'center', maxWidth: '800px', margin: '0 auto'}}>
+                        <p>우리의 AI 자세분석 시스템은 현대인의 자세 문제를 해결하기 위해 개발되었습니다. 
+                        장시간 컴퓨터 사용으로 인한 거북목, 라운드숄더 등의 문제를 실시간으로 감지하고 
+                        개선 방향을 제시합니다.</p>
+                        <br />
+                        <p>MediaPipe와 OpenCV 기술을 기반으로 하여 정확하고 빠른 자세 분석이 가능하며, 
+                        사용자 친화적인 인터페이스로 누구나 쉽게 사용할 수 있습니다.</p>
+                    </div>
+                </section>
+            );
+
+            const Features = () => {
+                const features = [
+                    { icon: '🎯', title: '실시간 자세 분석', desc: '카메라를 통해 실시간으로 자세를 분석하고 즉각적인 피드백을 제공합니다.' },
+                    { icon: '🤖', title: 'AI 기반 정확도', desc: '최신 딥러닝 모델을 사용하여 높은 정확도의 자세 인식을 제공합니다.' },
+                    { icon: '📊', title: '상세한 분석 리포트', desc: '자세 데이터를 엑셀로 저장하여 장기적인 자세 개선 추적이 가능합니다.' },
+                    { icon: '⚡', title: '빠른 처리속도', desc: '최적화된 알고리즘으로 지연 없는 실시간 분석을 제공합니다.' },
+                    { icon: '🔧', title: '사용자 맞춤 설정', desc: '개인의 체형과 환경에 맞는 맞춤형 분석 설정이 가능합니다.' },
+                    { icon: '🏥', title: '건강 관리 통합', desc: '자세 개선을 통한 전반적인 건강 상태 향상을 도모합니다.' }
+                ];
+
+                return (
+                    <section className="section">
+                        <h2 className="section-title">주요 기능</h2>
+                        <div className="features-grid">
+                            {features.map((feature, index) => (
+                                <div key={index} className="feature-card">
+                                    <div className="feature-icon">{feature.icon}</div>
+                                    <h3 className="feature-title">{feature.title}</h3>
+                                    <p className="feature-description">{feature.desc}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </section>
+                );
+            };
+
+            const Download = () => (
+                <section className="section">
+                    <h2 className="section-title">다운로드</h2>
+                    <div className="download-section">
+                        <div className="version-badge">v1.0.0 Latest</div>
+                        <h3 style={{fontSize: '1.5rem', marginBottom: '1rem'}}>지금 다운로드하고 건강한 자세를 만들어보세요</h3>
+                        <p style={{color: '#666', marginBottom: '2rem'}}>무료로 제공되는 AI 자세분석 프로그램을 설치하여 바른 자세 습관을 기르세요.</p>
+                        
+                        <div className="download-grid">
+                            <div className="download-card">
+                                <div style={{fontSize: '3rem', marginBottom: '1rem'}}>🖥️</div>
+                                <h4 style={{marginBottom: '1rem'}}>Windows</h4>
+                                <p style={{color: '#666', fontSize: '0.9rem', marginBottom: '1.5rem'}}>Windows 10/11 지원</p>
+                                <button 
+                                    className="btn btn-primary" 
+                                    style={{width: '100%'}}
+                                    onClick={() => handleDownload('windows')}
+                                    disabled={isLoading.windows}
+                                >
+                                    {isLoading.windows ? <span className="loading"></span> : 'Windows 다운로드'}
+                                </button>
+                                <p style={{fontSize: '0.8rem', color: '#888', marginTop: '0.5rem'}}>
+                                    <a href="https://github.com/yourname/AI-posture/releases" className="release-link" target="_blank">
+                                        GitHub Releases에서 다운로드
+                                    </a>
+                                </p>
+                            </div>
+                            <div className="download-card">
+                                <div style={{fontSize: '3rem', marginBottom: '1rem'}}>📱</div>
+                                <h4 style={{marginBottom: '1rem'}}>Mobile App</h4>
+                                <p style={{color: '#666', fontSize: '0.9rem', marginBottom: '1.5rem'}}>Android/iOS 앱</p>
+                                <button className="btn btn-secondary" style={{width: '100%'}} disabled>곧 출시 예정</button>
+                            </div>
+                        </div>
+
+                        <div className="specs">
+                            <h4 className="specs-title">시스템 요구사항</h4>
+                            <ul className="specs-list">
+                                <li>Windows 10 이상 또는 macOS 10.15 이상</li>
+                                <li>4GB RAM 이상 (8GB 권장)</li>
+                                <li>웹캠 또는 외장 카메라 (HD 720p 이상)</li>
+                                <li>500MB 저장공간</li>
+                                <li>인터넷 연결 (초기 설치 및 업데이트시)</li>
+                                <li>Python 3.8 이상 (설치 패키지에 포함)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </section>
+            );
+
+            const Contact = () => (
+                <section className="section">
+                    <h2 className="section-title">Contact</h2>
+                    <div style={{textAlign: 'center', maxWidth: '600px', margin: '0 auto'}}>
+                        <p style={{fontSize: '1.1rem', color: '#666', marginBottom: '2rem'}}>
+                            AI 자세분석 프로그램에 대한 문의사항이나 피드백이 있으시면 언제든 연락해주세요.
+                        </p>
+                        <div style={{background: '#f8fafc', padding: '2rem', borderRadius: '12px', border: '1px solid #e5e7eb'}}>
+                            <h4 style={{marginBottom: '1rem'}}>개발팀 연락처</h4>
+                            <p style={{marginBottom: '0.5rem'}}>📧 Email: support@posture-ai.com</p>
+                            <p style={{marginBottom: '0.5rem'}}>
+                                📱 GitHub: <a href="https://github.com/yourname/AI-posture" className="release-link" target="_blank">github.com/yourname/AI-posture</a>
+                            </p>
+                            <p style={{marginBottom: '0.5rem'}}>🌐 Website: posture-ai.com</p>
+                            <p style={{fontSize: '0.9rem', color: '#888', marginTop: '1rem'}}>
+                                버그 리포트 및 기능 요청은 GitHub Issues를 이용해주세요.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+            );
+
+            const Footer = () => (
+                <footer className="footer">
+                    <p>&copy; 2025 AI 자세분석. Where Body meets AI. All rights reserved.</p>
+                    <p style={{marginTop: '0.5rem', color: '#888'}}>건강한 자세, 건강한 삶을 위한 첫걸음</p>
+                    <p style={{marginTop: '1rem', fontSize: '0.9rem'}}>
+                        Made with ❤️ using React & GitHub Pages
+                    </p>
+                </footer>
+            );
+
+            const renderContent = () => {
+                switch(activeTab) {
+                    case 'home': return <Hero />;
+                    case 'about': return <About />;
+                    case 'features': return <Features />;
+                    case 'download': return <Download />;
+                    case 'contact': return <Contact />;
+                    default: return <Hero />;
+                }
+            };
+
+            // Close mobile menu when clicking outside
+            useEffect(() => {
+                const handleClickOutside = (event) => {
+                    if (mobileMenuOpen && !event.target.closest('.nav-container')) {
+                        setMobileMenuOpen(false);
+                    }
+                };
+
+                document.addEventListener('click', handleClickOutside);
+                return () => document.removeEventListener('click', handleClickOutside);
+            }, [mobileMenuOpen]);
+
+            return (
+                <div>
+                    <Navbar />
+                    <div className={`fade-enter-active`}>
+                        {renderContent()}
+                    </div>
+                    <Footer />
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
