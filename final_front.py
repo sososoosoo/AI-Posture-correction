@@ -154,11 +154,11 @@ def save_results_to_excel(timer_data):
         summary_sheet.append(["총 측정 시간 (초)", f"{timer_data.total_time:.2f}"])
         summary_sheet.append(["안좋은 자세 누적 시간 (초)", f"{timer_data.forward_neck_time:.2f}"])
         log_sheet = workbook.create_sheet(title="상세 로그")
-        log_sheet.append(["나쁜 자세 시작 시간", "나쁜 자세 종료 시간", "지속 시간 (초)"])
+        log_sheet.append(["시작 시간", "종료 시간", "지속 시간 (초)"])
         for start, end in timer_data.bad_posture_log:
             log_sheet.append([datetime.fromtimestamp(start).strftime('%Y-%m-%d %H:%M:%S'), 
                              datetime.fromtimestamp(end).strftime('%Y-%m-%d %H:%M:%S'), f"{(end - start):.2f}"])
-        filename = f"자세 측정 결과_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.xlsx"
+        filename = f"posture_results_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.xlsx"
         workbook.save(filename)
         return f"Saved: {filename.split('_')[-1]}" # 파일명에서 시간 부분만 표시
     except Exception as e:
@@ -189,7 +189,7 @@ def on_mouse_click(event, x, y, flags, param):
 def format_time_str(seconds):
     return str(timedelta(seconds=int(seconds)))
 
-# ===== (수정) UI 드로잉 함수: UI 상태에 따른 화면 전환 =====
+# ===== (수정) UI 드로잉 함수: UI 상태에 따른 화면 전환 및 피드백 위치 조정 =====
 def draw_ui(frame, fps):
     global posture_score, neck_tilt, calibrated, show_results, save_feedback_text, save_feedback_time
     
@@ -209,7 +209,7 @@ def draw_ui(frame, fps):
     cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, save_y), (BUTTON_X_OFFSET + BUTTON_WIDTH, save_y + BUTTON_HEIGHT), save_color, -1)
     cv2.putText(ui_panel, 'Save to Excel', (BUTTON_X_OFFSET + 55, save_y + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
-    y_pos = save_y + BUTTON_HEIGHT + 30
+    y_pos = save_y + BUTTON_HEIGHT + 30 # 'Real-time Analysis' 시작 Y 위치
 
     # --- 실시간 분석 정보 (상단 고정) ---
     cv2.putText(ui_panel, "Real-time Analysis", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 1)
@@ -218,10 +218,16 @@ def draw_ui(frame, fps):
     y_pos += 25 
     cv2.putText(ui_panel, f"Neck Tilt: {neck_tilt:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     
+    # --- 엑셀 저장 피드백 메시지 (Neck Tilt 아래에 위치) ---
+    if time.time() - save_feedback_time < 3.0: # 3초간 표시
+        y_pos += 25 # Neck Tilt 점수 아래에 띄움
+        cv2.putText(ui_panel, save_feedback_text, (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+        y_pos += 25 # 다음 요소와의 간격 조정 (메시지가 표시될 경우)
+    
     # ★★★ UI 상태 전환 로직 ★★★
     if show_results:
         # --- 최종 결과 및 로그 표시 (Stop 클릭 후) ---
-        y_pos += 40
+        y_pos += 20 # 이전 요소와의 간격 조정
         cv2.putText(ui_panel, "Final Results", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 1)
         y_pos += 25
         cv2.putText(ui_panel, f"Bad Posture: {format_time_str(posture_timer.forward_neck_time)}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 100, 255), 1)
@@ -237,7 +243,7 @@ def draw_ui(frame, fps):
             cv2.putText(ui_panel, f"{start_str} ({duration:.1f}s)", (BUTTON_X_OFFSET, y_pos + i*18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
     else:
         # --- 기본 화면 (측정 중 / 저장 후 / 시작 전) ---
-        y_pos_bottom = frame.shape[0] - 80
+        y_pos_bottom = frame.shape[0] - 80 # 화면 맨 아래에서부터 계산
         cv2.putText(ui_panel, "--- Calibration ---", (BUTTON_X_OFFSET, y_pos_bottom), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 1)
         y_pos_bottom += 25
         if not calibrated:
@@ -247,11 +253,6 @@ def draw_ui(frame, fps):
         y_pos_bottom += 25
         cv2.putText(ui_panel, f"FPS: {fps:.1f}", (BUTTON_X_OFFSET, y_pos_bottom), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
     
-    # 엑셀 저장 피드백 메시지 (항상 보이도록)
-    if time.time() - save_feedback_time < 3.0:
-        feedback_y = save_y + BUTTON_HEIGHT + 25
-        cv2.putText(ui_panel, save_feedback_text, (BUTTON_X_OFFSET, feedback_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-
     return cv2.hconcat([frame, ui_panel])
 
 
