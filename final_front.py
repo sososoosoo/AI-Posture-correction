@@ -17,7 +17,6 @@ mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
 # --- 전역 변수 ---
-# 'notification_sent'는 더 이상 사용하지 않으므로 삭제하거나 그대로 두어도 무방합니다.
 calibrated = False
 calibrated_chin_shoulder_dist = None
 calibrated_shoulder_width_px = None
@@ -25,8 +24,14 @@ calibrated_neck_tilt_offset = 0.0
 save_feedback_text = ""
 save_feedback_time = 0
 
-# (이하 AlarmPlayer, VideoPlayer, PostureTimer 등의 클래스와 함수들은 기존과 모두 동일합니다)
-# ... (이전 코드와 동일한 부분은 생략) ...
+# --- UI 및 타이머 상태 변수 ---
+timer_running = False
+show_results = False
+alarm_enabled = True
+toast_alarm_enabled = True
+
+# ===== (이하 생략된 클래스 정의들은 이전 답변의 전체 코드를 참고해주세요) =====
+# AlarmPlayer, VideoPlayer, PostureTimer 클래스 정의...
 _ALARM_CANDIDATES = ["alarm.wav", "alarm.mp3", os.path.join("assets", "alarm.wav"), os.path.join("assets", "alarm.mp3")]
 def _find_alarm_path():
     for p in _ALARM_CANDIDATES:
@@ -131,12 +136,18 @@ class PostureTimer:
             self.bad_posture_log.append((self._bad_posture_start_time, current_time))
             self._bad_posture_start_time = None
 
-timer_running = False; show_results = False; alarm_enabled = True
 posture_timer = PostureTimer(duration=1800)
-posture_score = 0.0; neck_tilt = 0.0
-FRAME_WIDTH = 960; PANEL_WIDTH = 350; BUTTON_X_OFFSET = 20; BUTTON_Y_START = 40
-BUTTON_WIDTH = 250; BUTTON_HEIGHT = 50; BUTTON_SPACING = 65
+posture_score = 0.0
+neck_tilt = 0.0
+
+# --- ★★★ UI 상수 정의 (수정된 값) ★★★ ---
+FRAME_WIDTH = 960; PANEL_WIDTH = 350; BUTTON_X_OFFSET = 20
+BUTTON_Y_START = 30         # 40 -> 30
+BUTTON_WIDTH = 250
+BUTTON_HEIGHT = 40          # 50 -> 40
+BUTTON_SPACING = 55         # 65 -> 55
 CLICK_BUTTON_X_START = FRAME_WIDTH + BUTTON_X_OFFSET
+
 def save_results_to_excel(timer_data):
     try:
         workbook = openpyxl.Workbook()
@@ -154,17 +165,24 @@ def save_results_to_excel(timer_data):
         return f"Saved: {filename.split('_')[-1]}"
     except Exception as e:
         return f"Error: {e}"
+
 def on_mouse_click(event, x, y, flags, param):
-    global timer_running, show_results, alarm_enabled, save_feedback_text, save_feedback_time
+    global timer_running, show_results, alarm_enabled, toast_alarm_enabled, save_feedback_text, save_feedback_time
     if event == cv2.EVENT_LBUTTONDOWN:
         if not timer_running and (CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and BUTTON_Y_START <= y <= BUTTON_Y_START + BUTTON_HEIGHT):
             posture_timer.start_timer(); timer_running = True; show_results = False; print("타이머 시작")
         elif timer_running and (CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and (BUTTON_Y_START + BUTTON_SPACING) <= y <= (BUTTON_Y_START + BUTTON_SPACING + BUTTON_HEIGHT)):
             posture_timer.stop_timer(); timer_running = False; show_results = True; print("타이머 종료. 결과:", posture_timer.stop_timer())
+        
         alarm_button_y = BUTTON_Y_START + 2 * BUTTON_SPACING
         if (CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and alarm_button_y <= y <= alarm_button_y + BUTTON_HEIGHT):
-            alarm_enabled = not alarm_enabled; print(f"알람 {'활성화' if alarm_enabled else '비활성화'}")
-        save_button_y = BUTTON_Y_START + 3 * BUTTON_SPACING
+            alarm_enabled = not alarm_enabled; print(f"소리 알람 {'활성화' if alarm_enabled else '비활성화'}")
+
+        toast_button_y = BUTTON_Y_START + 3 * BUTTON_SPACING
+        if (CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and toast_button_y <= y <= toast_button_y + BUTTON_HEIGHT):
+            toast_alarm_enabled = not toast_alarm_enabled; print(f"윈도우 알람 {'활성화' if toast_alarm_enabled else '비활성화'}")
+
+        save_button_y = BUTTON_Y_START + 4 * BUTTON_SPACING
         if show_results and (CLICK_BUTTON_X_START <= x <= CLICK_BUTTON_X_START + BUTTON_WIDTH and save_button_y <= y <= save_button_y + BUTTON_HEIGHT):
             feedback = save_results_to_excel(posture_timer)
             print(feedback)
@@ -173,22 +191,36 @@ def on_mouse_click(event, x, y, flags, param):
 
 def format_time_str(seconds):
     return str(timedelta(seconds=int(seconds)))
+
 def draw_ui(frame, fps):
-    global posture_score, neck_tilt, calibrated, show_results, save_feedback_text, save_feedback_time
+    global posture_score, neck_tilt, calibrated, show_results, save_feedback_text, save_feedback_time, toast_alarm_enabled
     ui_panel = np.zeros((frame.shape[0], PANEL_WIDTH, 3), dtype=np.uint8)
+
+    # --- 버튼 그리기 (수정된 텍스트 위치) ---
+    text_y_offset = 28 # 32 -> 28
     cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, BUTTON_Y_START), (BUTTON_X_OFFSET + BUTTON_WIDTH, BUTTON_Y_START + BUTTON_HEIGHT), (0, 150, 0) if not timer_running else (50, 50, 50), -1)
-    cv2.putText(ui_panel, 'Start Timer', (BUTTON_X_OFFSET + 70, BUTTON_Y_START + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(ui_panel, 'Start Timer', (BUTTON_X_OFFSET + 70, BUTTON_Y_START + text_y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
     stop_y = BUTTON_Y_START + BUTTON_SPACING
     cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, stop_y), (BUTTON_X_OFFSET + BUTTON_WIDTH, stop_y + BUTTON_HEIGHT), (0, 0, 150) if timer_running else (50, 50, 50), -1)
-    cv2.putText(ui_panel, 'Stop Timer', (BUTTON_X_OFFSET + 75, stop_y + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    cv2.putText(ui_panel, 'Stop Timer', (BUTTON_X_OFFSET + 75, stop_y + text_y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
     alarm_y = BUTTON_Y_START + 2 * BUTTON_SPACING
     cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, alarm_y), (BUTTON_X_OFFSET + BUTTON_WIDTH, alarm_y + BUTTON_HEIGHT), (0, 180, 0) if alarm_enabled else (50, 50, 180), -1)
-    cv2.putText(ui_panel, f"Alarm: {'ON' if alarm_enabled else 'OFF'}", (BUTTON_X_OFFSET + 75, alarm_y + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    save_y = BUTTON_Y_START + 3 * BUTTON_SPACING
+    cv2.putText(ui_panel, f"Alarm (Sound): {'ON' if alarm_enabled else 'OFF'}", (BUTTON_X_OFFSET + 30, alarm_y + text_y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    toast_y = BUTTON_Y_START + 3 * BUTTON_SPACING
+    cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, toast_y), (BUTTON_X_OFFSET + BUTTON_WIDTH, toast_y + BUTTON_HEIGHT), (0, 180, 100) if toast_alarm_enabled else (80, 50, 50), -1)
+    cv2.putText(ui_panel, f"Toast Alarm: {'ON' if toast_alarm_enabled else 'OFF'}", (BUTTON_X_OFFSET + 50, toast_y + text_y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    save_y = BUTTON_Y_START + 4 * BUTTON_SPACING
     save_color = (180, 100, 0) if show_results else (50, 50, 50)
     cv2.rectangle(ui_panel, (BUTTON_X_OFFSET, save_y), (BUTTON_X_OFFSET + BUTTON_WIDTH, save_y + BUTTON_HEIGHT), save_color, -1)
-    cv2.putText(ui_panel, 'Save to Excel', (BUTTON_X_OFFSET + 55, save_y + 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    y_pos = save_y + BUTTON_HEIGHT + 30
+    cv2.putText(ui_panel, 'Save to Excel', (BUTTON_X_OFFSET + 55, save_y + text_y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    y_pos = save_y + BUTTON_HEIGHT + 25
+
+    # (이하 UI 로직은 기존과 동일)
     cv2.putText(ui_panel, "Real-time Analysis", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 1)
     y_pos += 25
     cv2.putText(ui_panel, f"Posture Score: {posture_score:.2f}", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
@@ -197,7 +229,6 @@ def draw_ui(frame, fps):
     if time.time() - save_feedback_time < 3.0:
         y_pos += 25
         cv2.putText(ui_panel, save_feedback_text, (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-        y_pos += 25
     if show_results:
         y_pos += 20
         cv2.putText(ui_panel, "Final Results", (BUTTON_X_OFFSET, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 1)
@@ -225,16 +256,15 @@ def draw_ui(frame, fps):
     return cv2.hconcat([frame, ui_panel])
 
 def main():
-    global posture_score, neck_tilt, calibrated, timer_running, alarm_enabled, show_results
+    global posture_score, neck_tilt, calibrated, timer_running, alarm_enabled, toast_alarm_enabled, show_results
     global calibrated_chin_shoulder_dist, calibrated_shoulder_width_px, calibrated_neck_tilt_offset
     
     toaster = ToastNotifier()
     icon_path = "posture_alert.ico" if os.path.exists("posture_alert.ico") else None
     VIDEO_SOURCE = 0; player = None; _alarm_local = None
     
-    # ★★★ 1. 마지막 알림 시간 저장을 위한 변수 추가 ★★★
     last_notification_time = 0
-    NOTIFICATION_COOLDOWN = 5 # 5초 설정
+    NOTIFICATION_COOLDOWN = 5
 
     try:
         _alarm_local = AlarmPlayer(_find_alarm_path())
@@ -279,7 +309,7 @@ def main():
                     shoulder_y_norm, chin_y_norm = (ls.y + rs.y)/2, (ml.y + mr.y)/2
                     dist_norm = abs(shoulder_y_norm - chin_y_norm)
                     min_dist, max_dist = 0.08, 0.15
-                    if calibrated and calibrated_shoulder_width_px > 0:
+                    if calibrated and calibrated_shoulder_width_px is not None and calibrated_shoulder_width_px > 0:
                         scale = abs((ls.x - rs.x) * w) / calibrated_shoulder_width_px
                         adj_dist = calibrated_chin_shoulder_dist * scale
                         max_dist, min_dist = adj_dist, adj_dist * 0.7
@@ -292,9 +322,8 @@ def main():
 
             if timer_running: posture_timer.update_posture_status(is_bad_posture, current_time)
 
-            # ★★★ 2. 수정된 Windows 알림 전송 로직 ★★★
             time_since_last_notification = current_time - last_notification_time
-            if timer_running and alarm_enabled and is_bad_posture and (time_since_last_notification > NOTIFICATION_COOLDOWN):
+            if timer_running and toast_alarm_enabled and is_bad_posture and (time_since_last_notification > NOTIFICATION_COOLDOWN):
                 print(f"자세 나쁨 감지 ({NOTIFICATION_COOLDOWN}초 경과). Windows 알림을 보냅니다.")
                 toaster.show_toast(
                     "자세 경고 🧘",
@@ -303,9 +332,8 @@ def main():
                     duration=None,
                     threaded=True
                 )
-                last_notification_time = current_time # 마지막 알림 시간 갱신
+                last_notification_time = current_time
             
-            # 소리 알람 (이 로직은 쿨다운 없이 계속 울릴 수 있습니다)
             should_alarm_sound = timer_running and alarm_enabled and is_bad_posture
             if should_alarm_sound and not _alarm_local_on: _alarm_local.start(); _alarm_local_on = True
             elif not should_alarm_sound and _alarm_local_on: _alarm_local.stop(); _alarm_local_on = False
