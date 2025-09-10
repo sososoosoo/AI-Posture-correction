@@ -408,8 +408,8 @@ def main():
                     time_since_last_notification > NOTIFICATION_COOLDOWN):
                 print(f"자세 나쁨 감지 ({NOTIFICATION_COOLDOWN}초 경과). Windows 알림을 보냅니다.")
                 toaster.show_toast(
-                    "자세 경고 !!! ",
-                    "자세가 좋지 않습니다. 허리를 펴고 스트레칭을 해보세요!",
+                    "자세 경고!!! ",
+                    "자세가 좋지 않습니다. 고개를 들고 허리를 곧게 펴세요!",
                     icon_path=icon_path,
                     duration=None,
                     threaded=True
